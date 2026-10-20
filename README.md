@@ -41,6 +41,8 @@ pip install -e ".[dev]"         # tests
 paper2audio paper.pdf                          # -> paper.mp3 (auto-detects the journal)
 paper2audio paper.pdf --transcript             # also write paper.txt: check what will be read
 paper2audio paper.pdf -e none                  # transcript only, no audio
+paper2audio paper.pdf --fast                   # quick robotic voice (espeak, offline, ~1 min per paper)
+paper2audio paper.pdf --fast -e api            # quick, via your own TTS API (see below)
 paper2audio paper.pdf -v en-GB-SoniaNeural -r 1.2  # voice and speed
 paper2audio paper.pdf --skip methods           # skip more sections (regex)
 paper2audio paper.pdf --captions               # also read figure captions
@@ -59,7 +61,28 @@ TTS engines (`-e`):
 | `kokoro` | neural, very good | yes     | `am_michael`, `am_adam`, `af_heart`, `bm_george`, `bf_emma`, … ~2× real time on 4 CPU cores |
 | `piper`  | neural, good      | yes     | `pip install piper-tts`; `-v path/to/voice.onnx`         |
 | `say`    | good              | yes     | macOS only                                               |
-| `espeak` | robotic           | yes     | installed with pip, no system package needed             |
+| `espeak` | robotic           | yes     | installed with pip, no system package needed; `--fast` default |
+| `api`    | depends on server | no      | any OpenAI-compatible `/v1/audio/speech` endpoint, see below |
+
+Network engines (`edge`, `api`) synthesise 4 sections at once; change this with `-j`.
+
+The `api` engine works with OpenAI and with self-hosted servers that copy its API
+(Kokoro-FastAPI, openedai-speech, LocalAI, …):
+
+```bash
+export PAPER2AUDIO_TTS_URL=http://localhost:8880/v1/audio/speech  # default: OpenAI
+export PAPER2AUDIO_TTS_KEY=...          # or OPENAI_API_KEY; local servers may need none
+export PAPER2AUDIO_TTS_MODEL=kokoro     # default: tts-1
+paper2audio paper.pdf -e api -v af_heart
+```
+
+### Google Colab (free GPU)
+
+[`notebooks/paper2audio_colab.ipynb`](notebooks/paper2audio_colab.ipynb) installs
+paper2audio on Colab, asks you to upload a PDF and returns an MP3 read by
+Kokoro-82M on the GPU (about 1–2 minutes per paper on a T4). Open it from GitHub in
+Colab (File → Open notebook → GitHub), or upload the file. If the repository is
+private, add a Colab secret `GITHUB_TOKEN` that can read it.
 
 From Python:
 

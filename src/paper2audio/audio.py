@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .pipeline import Script
@@ -29,15 +30,17 @@ def _section_texts(script: Script) -> list[tuple[str, str]]:
     return parts
 
 
-def render(script: Script, backend: TTSBackend, out_path: Path, pause: float = 1.0, progress=print) -> Path:
+def render(script: Script, backend: TTSBackend, out_path: Path, pause: float = 1.0, progress=print,
+           jobs: int = 1) -> Path:
+    """`jobs` sections are synthesised at once if the backend allows it (network engines)."""
     if not shutil.which("ffmpeg"):
         raise RuntimeError("ffmpeg is required to assemble the audio")
     out_path = Path(out_path)
     with tempfile.TemporaryDirectory(prefix="paper2audio-") as tmp:
         tmpdir = Path(tmp)
         parts = _section_texts(script)
-        clips: list[tuple[str, Path]] = []
-        for i, (title, text) in enumerate(parts):
+
+        def clip(i: int, title: str, text: str) -> Path:
             progress(f"  [{i + 1}/{len(parts)}] {title}")
             raw = backend.synthesize(text, tmpdir / f"part{i:03d}")
             wav = tmpdir / f"part{i:03d}.norm.wav"
@@ -47,7 +50,12 @@ def render(script: Script, backend: TTSBackend, out_path: Path, pause: float = 1
                  "-ar", "24000", "-ac", "1", str(wav)],
                 check=True,
             )
-            clips.append((title, wav))
+            return wav
+
+        workers = max(1, jobs) if backend.concurrent else 1
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(clip, i, title, text) for i, (title, text) in enumerate(parts)]
+            clips = [(title, f.result()) for (title, _), f in zip(parts, futures)]
 
         listing = tmpdir / "list.txt"
         listing.write_text("".join(f"file '{p}'\n" for _, p in clips))

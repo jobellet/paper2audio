@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .api import ApiTTS
 from .base import TTSBackend
 from .edge import EdgeTTS
 from .espeak import EspeakTTS
@@ -9,7 +10,7 @@ from .kokoro import KokoroTTS
 from .piper import PiperTTS
 from .say import SayTTS
 
-BACKENDS: dict[str, type[TTSBackend]] = {b.name: b for b in (EdgeTTS, KokoroTTS, PiperTTS, SayTTS, EspeakTTS)}
+BACKENDS: dict[str, type[TTSBackend]] = {b.name: b for b in (EdgeTTS, KokoroTTS, PiperTTS, SayTTS, EspeakTTS, ApiTTS)}
 
 
 def get_backend(name: str, **kwargs) -> TTSBackend:

@@ -12,6 +12,7 @@ from .base import TTSBackend
 class EdgeTTS(TTSBackend):
     name = "edge"
     extension = ".mp3"
+    concurrent = True
     default_voice = "en-US-AndrewNeural"
 
     @classmethod

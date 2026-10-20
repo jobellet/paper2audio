@@ -16,10 +16,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("pdf", nargs="?", help="scientific paper (PDF)")
     ap.add_argument("-o", "--output", help="output .mp3 (default: next to the PDF)")
     ap.add_argument("-p", "--profile", default="auto", help="journal profile (default: auto-detect)")
-    ap.add_argument("-e", "--engine", default="edge", choices=["auto", "none", *BACKENDS],
-                    help="TTS engine; 'none' writes only the transcript")
-    ap.add_argument("-v", "--voice", help="voice name (edge/say/espeak) or .onnx model path (piper)")
+    ap.add_argument("-e", "--engine", choices=["auto", "none", *BACKENDS],
+                    help="TTS engine (default: edge, or espeak with --fast); 'none' writes only the "
+                         "transcript; 'api' is any OpenAI-compatible endpoint (PAPER2AUDIO_TTS_URL)")
+    ap.add_argument("--fast", action="store_true",
+                    help="quick audio: robotic offline voice (espeak) unless -e chooses another engine")
+    ap.add_argument("-v", "--voice", help="voice name (edge/say/espeak/api) or .onnx model path (piper)")
     ap.add_argument("-r", "--rate", type=float, default=1.0, help="speaking speed, 1.0 = normal")
+    ap.add_argument("-j", "--jobs", type=int, default=4,
+                    help="sections synthesised at once by network engines (edge, api; default 4)")
     ap.add_argument("--captions", action="store_true", help="also read figure/table captions")
     ap.add_argument("--skip", action="append", default=[], metavar="REGEX",
                     help="extra section titles to skip, e.g. --skip methods")
@@ -40,6 +45,7 @@ def main(argv: list[str] | None = None) -> int:
         ap.error("the pdf argument is required")
 
     pdf = Path(args.pdf)
+    engine = args.engine or ("espeak" if args.fast else "edge")
     options: dict = {}
     if args.captions:
         options["read_captions"] = True
@@ -64,18 +70,18 @@ def main(argv: list[str] | None = None) -> int:
         print(quality_report(script))
         return 0
 
-    if args.transcript or args.engine == "none":
+    if args.transcript or engine == "none":
         txt = out.with_suffix(".txt")
         txt.write_text(script.to_text(), encoding="utf-8")
         print(f"transcript: {txt}", file=sys.stderr)
-    if args.engine == "none":
+    if engine == "none":
         return 0
 
     from .audio import render
 
-    backend = get_backend(args.engine, voice=args.voice, rate=args.rate)
+    backend = get_backend(engine, voice=args.voice, rate=args.rate)
     print(f"synthesising with {backend.name} ...", file=sys.stderr)
-    render(script, backend, out, progress=lambda m: print(m, file=sys.stderr))
+    render(script, backend, out, progress=lambda m: print(m, file=sys.stderr), jobs=args.jobs)
     print(f"audio: {out}", file=sys.stderr)
     return 0
 
