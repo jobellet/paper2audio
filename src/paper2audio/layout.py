@@ -190,8 +190,21 @@ def mark_captions(ordered: list[Line], body: float) -> None:
                 caption_chars[round(ln.size, 1)] += len(ln.text)
     caption_sizes = [sz for sz, n in caption_chars.items()
                      if abs(sz - body) > 0.5 and n >= 0.4 * size_chars[sz]]
+    # an abstract may share the caption size (NeuroImage: 7.2 pt): first-page
+    # text above the first section heading ("1. Introduction"; author names set
+    # as a heading do not count) is never a caption by size alone. Without such
+    # a heading on page 1 (Nature: drop cap), nothing is exempt.
+    first = next((ln for ln in ordered if ln.page == 0 and ln.kind == Kind.HEADING
+                  and (_SECTION_NAME.match(ln.text) or _NUMBERED_HEADING.match(ln.text))), None)
+    front = set()
+    if first is not None:
+        for ln in ordered:
+            if ln is first or ln.page > 0:
+                break
+            if ln.y1 <= first.y0:
+                front.add(id(ln))
     for ln in ordered:
-        if ln.kind == Kind.BODY and any(abs(ln.size - sz) <= 0.15 for sz in caption_sizes):
+        if ln.kind == Kind.BODY and id(ln) not in front and any(abs(ln.size - sz) <= 0.15 for sz in caption_sizes):
             ln.kind = Kind.CAPTION
 
 
@@ -300,6 +313,7 @@ def mark_headings(doc: Document, body: float) -> None:
         title_size = max(first, default=0.0)
         if title_size <= body * 1.3:
             _mark_plain_title(doc.pages[0])
+    italic_headings: set[int] = set()
     for ln in doc.lines:
         if ln.kind in (Kind.BODY, Kind.FOOTNOTE) and _SECTION_NAME.match(ln.text) and (ln.bold or ln.text.isupper()):
             ln.kind = Kind.HEADING  # "INTRODUCTION" in small caps, smaller than the body text
@@ -318,8 +332,21 @@ def mark_headings(doc: Document, body: float) -> None:
               and all(sp.bold for sp in ln.spans if sp.text.strip())):  # not a run-in heading
             ln.kind = Kind.HEADING
         elif (words <= 14 and _SUBSECTION_NUMBER.match(ln.text) and abs(ln.size - body) <= 0.5
-              and not _TERMINAL.search(ln.text) and all(sp.italic for sp in ln.spans if sp.text.strip())):
+              and not _TERMINAL.search(ln.text) and _all_italic(ln)):
             ln.kind = Kind.HEADING  # "2.1. Participants" in italics (Elsevier, Frontiers)
+            italic_headings.add(id(ln))
+    # second line of a wrapped italic heading: italic, aligned, directly below
+    for page in doc.pages:
+        for prev, ln in zip(page.lines, page.lines[1:]):
+            if (id(prev) in italic_headings and ln.kind == Kind.BODY and _all_italic(ln)
+                    and abs(ln.x0 - prev.x0) < 2 and 0 <= ln.y0 - prev.y1 < prev.height
+                    and abs(ln.size - prev.size) < 0.3 and len(ln.text.split()) <= 14):
+                ln.kind = Kind.HEADING
+                italic_headings.add(id(ln))
+
+
+def _all_italic(ln: Line) -> bool:
+    return all(sp.italic for sp in ln.spans if sp.text.strip())
 
 
 # --------------------------------------------------------------------------- reading order

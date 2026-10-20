@@ -62,6 +62,17 @@ class Elsevier(Generic):
         rule("star_methods", r"STAR\s?★\s?Methods", "STAR Methods"),
     )
 
+    def classify_lines(self, doc, body_size: float) -> None:
+        """The journal name in the first-page masthead is set as large as the title."""
+        if not doc.pages:
+            return
+        page = doc.pages[0]
+        homepage = [ln.y1 for ln in page.lines if re.search(r"journal homepage", ln.text, re.I)]
+        if homepage:
+            for ln in page.lines:
+                if ln.kind == Kind.TITLE and ln.y1 <= max(homepage) + 2:
+                    ln.kind = Kind.HEADER_FOOTER
+
 
 @register
 class CellPress(Elsevier):
@@ -104,6 +115,7 @@ class CellPress(Elsevier):
 
     def classify_lines(self, doc, body_size: float) -> None:
         """Headings in capitals and the body font, which may wrap onto a second line."""
+        super().classify_lines(doc, body_size)
         for page in doc.pages:
             for ln in sorted(page.lines, key=lambda l: l.y0):
                 if not (ln.kind == Kind.BODY and ln.text.isupper() and abs(ln.size - body_size) < 0.4

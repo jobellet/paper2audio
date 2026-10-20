@@ -117,3 +117,21 @@ def test_axis_labels_next_to_figure_dropped():
 def test_bold_from_font_name(font, bold):
     from paper2audio.extract import _is_bold
     assert _is_bold({"font": font, "flags": 0}) is bold
+
+
+def test_italic_numbered_subheading_wraps():
+    """'3.5. Reduced gamma ... strong' + 'correlations with ...' in italics is one heading;
+    an italic sentence and a numbered list item in roman type are not headings."""
+    from paper2audio.layout import mark_headings
+    from paper2audio.models import Document, Kind, Line, Page, Span
+
+    def line(text, y, italic=True, x0=38):
+        return Line(text, x0, y, 284, y + 8, 8.0, False, 0, spans=[Span(text, x0, 284, 8.0, italic=italic)])
+
+    head = line("3.5. Reduced gamma response in early visual cortex does not show strong", 572)
+    cont = line("correlations with alpha/beta power or phase in any of the tested ROIs", 583)
+    prose = line("To test our hypothesis that feedback from high-level visually re-", 604, italic=False, x0=50)
+    item = line("2.1. Participants were recruited from the university pool and paid", 620, italic=False)
+    page = Page(0, 595, 794, lines=[head, cont, prose, item])
+    mark_headings(Document("x.pdf", [page]), body=8.0)
+    assert [ln.kind for ln in page.lines] == [Kind.HEADING, Kind.HEADING, Kind.BODY, Kind.BODY]

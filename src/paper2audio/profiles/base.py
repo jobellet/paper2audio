@@ -37,7 +37,7 @@ GENERIC_SKIP_SECTIONS = (
     r"financial (support|disclosure)",
     r"author(s'?|'s)? contributions?",
     r"contributions",
-    r"credit authorship contribution statement",
+    r"credit (authorship contribution|author(ship)?) statement",
     r"(declaration of )?(competing|conflicts?( of)?|financial) interests?( statement)?",
     r"disclosure( statement)?s?",
     r"(data|code|data and code|materials?,? data,? and code|software) availability( statement)?",
