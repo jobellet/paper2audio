@@ -212,9 +212,26 @@ def mark_captions(ordered: list[Line], body: float) -> None:
                 break
             if ln.y1 <= first.y0:
                 front.add(id(ln))
+    # and not in text that a heading introduces, until the next caption: J Neurosci
+    # 2006 sets the second half of a caption and, below a subheading, Methods text
+    # in the caption size in one column
+    def caption_size(ln: Line) -> bool:
+        return any(abs(ln.size - sz) <= 0.15 for sz in caption_sizes)
+
+    heading_before: set[tuple[int, int]] = set()
+    introduced: set[tuple[int, int]] = set()
     for ln in ordered:
-        if (ln.kind == Kind.BODY and id(ln) not in front and (ln.page, ln.column) in caption_flows
-                and any(abs(ln.size - sz) <= 0.15 for sz in caption_sizes)):
+        key = (ln.page, ln.column)
+        if ln.kind == Kind.HEADING:
+            heading_before.add(key)
+            continue
+        if key in heading_before and ln.kind == Kind.BODY and caption_size(ln):
+            introduced.add(key)
+        heading_before.discard(key)
+        if ln.kind == Kind.CAPTION:
+            introduced.discard(key)
+        elif (ln.kind == Kind.BODY and id(ln) not in front and key in caption_flows and key not in introduced
+                and caption_size(ln)):
             ln.kind = Kind.CAPTION
 
 
@@ -505,7 +522,34 @@ def xy_cut(lines: list[Line], body: float, path: tuple = ()) -> list[tuple[Line,
                 groups.append(band)
         if len(groups) > 1:
             return [item for j, g in enumerate(groups) for item in xy_cut(g, body, path + (("h", j),))]
+    spanning = _spanning_lines(lines, v_gap)
+    if spanning:
+        # a few lines (a caption 1.5 columns wide, figure labels) block an otherwise
+        # clear gutter: they are a flow of their own, and the columns are read apart
+        rest = [ln for ln in lines if ln not in spanning]
+        middle = sorted(ln.y0 for ln in rest)[len(rest) // 2]
+        above = [ln for ln in spanning if ln.y0 < middle]
+        below = [ln for ln in spanning if ln.y0 >= middle]
+        out = [(ln, path + (("s", 0),)) for ln in sorted(above, key=lambda ln: (round(ln.y0), ln.x0))]
+        out += xy_cut(rest, body, path + (("s", 1),))
+        out += [(ln, path + (("s", 2),)) for ln in sorted(below, key=lambda ln: (round(ln.y0), ln.x0))]
+        return out
     return [(ln, path) for ln in sorted(lines, key=lambda ln: (round(ln.y0), ln.x0))]
+
+
+def _spanning_lines(lines: list[Line], min_gap: float) -> list[Line]:
+    """Lines that alone keep a gutter from crossing the region: at most a quarter of
+    its lines, and the rest are at least six lines on each side of the gutter."""
+    if len(lines) < 12:
+        return []
+    left, right = min(ln.x0 for ln in lines), max(ln.x1 for ln in lines)
+    narrow = [ln for ln in lines if ln.width < 0.6 * (right - left)]
+    for cut in vertical_cuts(narrow, min_gap):
+        spanning = [ln for ln in lines if ln.x0 < cut < ln.x1]
+        sides = sum(1 for ln in lines if ln.x1 <= cut), sum(1 for ln in lines if ln.x0 >= cut)
+        if spanning and len(spanning) <= 0.25 * len(lines) and min(sides) >= 6:
+            return spanning
+    return []
 
 
 def reading_order(page: Page, body: float) -> list[Line]:

@@ -358,3 +358,23 @@ def test_repeated_title_ends_the_article():
     early = [Paragraph(t, Kind.TITLE), Paragraph(t, Kind.HEADING), *body]
     _, sections, _ = sectionize(early, Generic(), front_matter=False)
     assert sum(len(s.paragraphs) for s in sections) == 12
+
+
+def test_columns_read_apart_when_a_wide_caption_crosses_the_gutter():
+    """A caption 1.5 columns wide crosses the gutter; the two columns are still read
+    one after the other, not interleaved line by line (J Neurosci 2020)."""
+    from paper2audio.layout import reading_order
+    from paper2audio.models import Line, Page, Span
+
+    def line(text, x0, x1, y, size=9.5):
+        return Line(text, x0, y, x1, y + size, size, False, 0, spans=[Span(text, x0, x1, size)])
+
+    # the caption sits in the upper left, the right column runs beside and below it,
+    # so neither a gutter nor a horizontal gap crosses the whole page
+    caption = [line(f"Figure 1 caption line {i}", 42, 374, 210 + 10 * i, 8.0) for i in range(3)]
+    left = [line(f"left{i:02d} text of the first column", 42, 285, 245 + 11 * i) for i in range(10)]
+    right = [line(f"right{i:02d} text of the second column", 386 if i < 3 else 300, 543, 212 + 11 * i)
+             for i in range(13)]
+    order = [ln.text.split()[0] for ln in reading_order(Page(2, 612, 792, lines=[*caption, *left, *right]), 9.5)]
+    body = [w for w in order if w.startswith(("left", "right"))]
+    assert body == [f"left{i:02d}" for i in range(10)] + [f"right{i:02d}" for i in range(13)]
