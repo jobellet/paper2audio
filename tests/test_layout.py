@@ -190,6 +190,10 @@ def test_missing_spaces_restored():
     assert _respace(_chars("of_decoding_noisy_neural", word_gap=0.97)) == "of decoding noisy neural"
     # a single word whose glyph boxes leave a 0.08 em gap: "ep ilepsy" must not happen
     assert _respace(_chars("ep_ilepsy", size=8.5, letter_gap=0.0, word_gap=0.6)) == "epilepsy"
+    from paper2audio.extract import _spans_text
+    from paper2audio.models import Span
+    assert _spans_text([Span("boosts perceptual processing.In that respect", 0, 200, 8.5)]) == \
+        "boosts perceptual processing. In that respect"
     # no split before an apostrophe or after an accent
     assert _respace(_chars("observer_’s_choice_was_made", word_gap=1.4)) == "observer’s choice was made"
 

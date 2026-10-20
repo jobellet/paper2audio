@@ -65,7 +65,7 @@ def _spans_text(spans: list[Span]) -> str:
         out.append(t)
     text = re.sub(r"\s+", " ", "".join(out)).strip()
     # a missing space after a full stop: "processing.In that respect" (J Neurosci, Cell Press)
-    return re.sub(r"(?<=[a-z]{2}[.;:?!])(?=[A-Z][a-z]{2})", " ", text)
+    return re.sub(r"(?<=[a-z]{2}[.;:?!])(?=[A-Z][a-z]+\b)", " ", text)
 
 
 def _group(spans: list[Span]) -> list[list[Span]]:
