@@ -19,14 +19,18 @@ _MONO_FONTS = ("courier", "mono", "consola", "menlo", "inconsolata", "sourcecode
 
 def _is_bold(span: dict) -> bool:
     font = span.get("font", "").lower()
-    return bool(span.get("flags", 0) & 16) or any(w in font for w in ("bold", "black", "heavy", "semibold"))
+    return (bool(span.get("flags", 0) & 16) or any(w in font for w in ("bold", "black", "heavy", "semibold"))
+            or re.search(r"hn-(h|hv|b|bd)$", font) is not None)  # Helvetica Neue weights: AdvPSHN-H (Cell Press)
 
 
 def _make_span(s: dict) -> Span:
     x0, _, x1, _ = s["bbox"]
     flags = s.get("flags", 0)
+    text = s["text"]
+    if text.strip() == "d" and re.search(r"mpi\d", s.get("font", "").lower()):
+        text = text.replace("d", "•")  # Mathematical Pi bullet (Cell Press lists)
     return Span(
-        text=s["text"],
+        text=text,
         x0=x0,
         x1=x1,
         size=round(s["size"], 1),

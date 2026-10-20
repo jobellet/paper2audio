@@ -125,7 +125,8 @@ journal family has a *profile* with its own rules.
 | `springer_nature` | 10.1038, 10.1007, 10.1186 (Nature, Nature Mental Health, …)  | ✓ |
 | `biorxiv`         | 10.1101 (bioRxiv, medRxiv)                | ✓ |
 | `aps`             | 10.1152 (J Neurophysiol, J Appl Physiol)  | ✓ |
-| `elsevier`        | 10.1016 (Vision Res, NeuroImage, Cell, …) | not yet |
+| `cell_press`      | 10.1016/j.neuron, j.cell, j.cub, j.celrep, Trends, … | ✓ (2012–2024) |
+| `elsevier`        | other 10.1016 (Vision Res, NeuroImage, Cortex, …) | partly |
 | `plos`            | 10.1371                                   | not yet |
 | `elife`           | 10.7554                                   | not yet |
 | `jneurosci`       | 10.1523                                   | not yet |

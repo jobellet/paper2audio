@@ -100,3 +100,22 @@ def test_refs_parenthetical():
 ])
 def test_speech_exponents(raw, expected):
     assert to_speech(raw) == expected
+
+
+@pytest.mark.parametrize("raw, spoken", [
+    ("INTRODUCTION", "Introduction"),
+    ("I. INTRODUCTION", "Introduction"),
+    ("II. METHODS", "Methods"),
+    ("MATERIALS AND METHODS", "Materials and methods"),
+    ("THEORIES OF CONSCIOUSNESS: Global neuronal workspace theory",
+     "Theories of consciousness: Global neuronal workspace theory"),
+    ("Method 6: DGCCA", "Method 6: DGCCA"),  # an acronym in a mixed title stays
+    ("2. Methods: 2.1 Participants", "Methods: Participants"),
+])
+def test_section_titles_spoken(raw, spoken):
+    from paper2audio.models import Paragraph, Section
+    from paper2audio.pipeline import clean_sections
+    from paper2audio.profiles.generic import Generic
+
+    section = Section(title=raw, paragraphs=[Paragraph(text="Some words to read.", kind=None, page=0)])
+    assert clean_sections([section], Generic())[0].title == spoken
