@@ -307,7 +307,7 @@ def mark_math(doc: Document) -> None:
         tokens += ["θ"] * symbols
         real_words = [w for w in re.findall(r"[A-Za-z]{4,}", ln.text) if w.lower() not in _MATH_WORDS]
         numbered_equation = re.search(r"\(\d{1,2}[a-z]?\)\s*$", ln.text) and len(real_words) <= 2
-        if numbered_equation or (tokens and not real_words and len(tokens) <= 12 and mathy / len(tokens) > 0.6):
+        if numbered_equation or (tokens and not real_words and (len(tokens) <= 12 or mathy == len(tokens)) and mathy / len(tokens) > 0.6):
             ln.kind = Kind.OTHER
 
 
