@@ -270,3 +270,91 @@ def test_sentence_starting_with_figure_is_not_a_caption():
     bold.spans = [Span("Figure 3", 44, 80, 8.5, bold=True), Span(" illustrates the group-averaged mean RT", 80, 296, 8.5)]
     assert not is_caption_start(bold, prev, 8.5)  # eLife sets figure references in bold
     assert is_caption_start(line("Figure 3. Group-averaged mean RT and accuracy for each condition", 440), prev, 8.5)
+
+
+def test_larger_italic_line_is_a_subheading():
+    from paper2audio.layout import mark_headings
+    from paper2audio.models import Document, Kind, Line, Page, Span
+
+    def line(text, y, size, italic=False, x1=541):
+        return Line(text, 301, y, x1, y + size, size, False, 0, spans=[Span(text, 301, x1, size, italic=italic)])
+
+    title = line("Directional Signals in the Prefrontal Cortex and in Area MT", 60, 22.0)
+    before = line("Acquisition Processor system (Plexon, Dallas, TX).", 277, 8.5, x1=474)
+    head = line("Confirming prefrontal location", 296, 9.5, italic=True, x1=414)
+    text = line("We aimed at recording in the region of the PFC interconnected with", 306, 8.5)
+    quote = line("the so-called sample stimulus", 320, 8.5, italic=True, x1=420)  # italic, same size: prose
+    after = line("which was then followed by a delay of variable length.", 331, 8.5)
+    page = Page(0, 612, 792, lines=[title, before, head, text, quote, after])
+    mark_headings(Document("x.pdf", [page]), body=9.5)
+    assert head.kind == Kind.HEADING
+    assert [ln.kind for ln in (before, text, quote, after)] == [Kind.BODY] * 4
+
+
+def test_body_column_beside_a_caption_is_not_caption():
+    """A caption line filling the left column must not pull the body-text column next
+    to it into the caption (J Neurosci 2006); a 'Table 2.' label still takes its title."""
+    from paper2audio.layout import mark_captions
+    from paper2audio.models import Kind, Line, Span
+
+    def line(text, x0, x1, y, size, kind=Kind.BODY):
+        ln = Line(text, x0, y, x1, y + size, size, False, 0, spans=[Span(text, x0, x1, size)], kind=kind)
+        return ln
+
+    cap = line("Figure 1. Visual stimuli, behavioral tasks, and directional", 43, 285, 359, 8.5)
+    cap.column = 0
+    col = line("ing to sensory stimuli may provide insight into the relative level", 301, 544, 359, 9.5)
+    col.column = 1
+    label = line("Table 2.", 43, 80, 500, 8.5)
+    label.column = 0
+    title = line("Number of neurons with significant effects", 90, 300, 500, 8.5)
+    title.column = 0
+    mark_captions([cap, col, label, title], body=9.5)
+    assert cap.kind == Kind.CAPTION and col.kind == Kind.BODY
+    assert label.kind == title.kind == Kind.CAPTION
+
+
+def test_sentence_rejoined_across_dropped_footnotes():
+    """First-page footnotes between two halves of a sentence are dropped; the halves join."""
+    from paper2audio.models import Kind, Paragraph
+    from paper2audio.pipeline import sectionize
+    from paper2audio.profiles.elsevier import Elsevier
+
+    paras = [Paragraph("1. Introduction", Kind.HEADING),
+             Paragraph("Our previous methodology was limited to reveal relative changes in HSF, compared to LSF"),
+             Paragraph("∗ Corresponding author at: Psychological Sciences Research Institute, Belgium."),
+             Paragraph("E-mail address: kirsten.petras@uclouvain.be (K. Petras)."),
+             Paragraph("1 Authors contributed equally."),
+             Paragraph("markers in intact versus scrambled conditions.")]
+    _, sections, _ = sectionize(paras, Elsevier(), front_matter=False)
+    assert [p.text for p in sections[0].paragraphs] == [
+        "Our previous methodology was limited to reveal relative changes in HSF, compared to LSF "
+        "markers in intact versus scrambled conditions."]
+
+
+@pytest.mark.parametrize("text", ["https://doi.org/10.1016/j.neuroimage.2021.118613",
+                                  "(http://creativecommons.org/licenses/by-nc-nd/4.0/)", "doi: 10.1523/JNEUROSCI.0120-20.2020"])
+def test_url_lines_are_junk(text):
+    import re
+    from paper2audio.profiles.generic import Generic
+    assert any(re.search(p, text, re.I) for p in Generic.junk_lines)
+
+
+def test_repeated_title_ends_the_article():
+    """Science PDFs end with a page repeating the title, the authors and an editor's summary."""
+    from paper2audio.models import Kind, Paragraph
+    from paper2audio.pipeline import sectionize
+    from paper2audio.profiles.generic import Generic
+
+    t = "Geometry of sequence working memory in macaque prefrontal cortex"
+    body = [Paragraph(f"Sentence number {i} of the main text describes the experiment.") for i in range(12)]
+    end = [Paragraph(t, Kind.HEADING), Paragraph("Yang XiePeiyao HuJunru LiStanislas Dehaene"),
+           Paragraph("How to remember a sequence of events. How is serial order mentally encoded?")]
+    paras = [Paragraph(t, Kind.TITLE), Paragraph("Introduction", Kind.HEADING), *body, *end]
+    _, sections, skipped = sectionize(paras, Generic(), front_matter=False)
+    assert [s.title for s in sections] == ["Introduction"] and len(sections[0].paragraphs) == 12
+    assert skipped[-1] == t
+    # a repeat near the start (title page, running title above the abstract) is not the end
+    early = [Paragraph(t, Kind.TITLE), Paragraph(t, Kind.HEADING), *body]
+    _, sections, _ = sectionize(early, Generic(), front_matter=False)
+    assert sum(len(s.paragraphs) for s in sections) == 12

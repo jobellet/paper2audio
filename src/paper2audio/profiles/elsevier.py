@@ -40,7 +40,6 @@ class Elsevier(Generic):
     )
     junk_paragraphs = Generic.junk_paragraphs + (
         r"article history:",
-        r"\*\s*corresponding author",
         r"available online",
         r"lead contact",
         r"in brief\b",

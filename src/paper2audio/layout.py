@@ -111,6 +111,7 @@ def mark_small_text(doc: Document, body: float, profile: "JournalProfile") -> No
             ln.kind = Kind.FOOTNOTE
 
 
+
 def mark_fragment_flows(ordered: list[Line]) -> None:
     """A flow made of short, unpunctuated fragments is figure or table text
     (axis labels, legends, row names), not prose."""
@@ -168,7 +169,11 @@ def mark_captions(ordered: list[Line], body: float) -> None:
             if ln.kind != Kind.BODY:
                 continue
             for cap in caps:
-                beside = abs(ln.y0 - cap.y0) < 2.5 and 0 <= ln.x0 - cap.x1 < 20
+                # "Table 2." + its title on the same baseline, or the second column of
+                # a caption set across two columns (Nature); not a column of body text
+                # next to a caption line (J Neurosci 2006)
+                beside = (abs(ln.y0 - cap.y0) < 2.5 and 0 <= ln.x0 - cap.x1 < 20
+                          and (len(cap.text.split()) <= 3 or abs(ln.size - body) > 0.5))
                 overlap = min(ln.x1, cap.x1) - max(ln.x0, cap.x0)
                 # line boxes of tightly set captions overlap by a point or so; only
                 # trust that for text smaller than the body (not a column of prose)
@@ -190,6 +195,10 @@ def mark_captions(ordered: list[Line], body: float) -> None:
                 caption_chars[round(ln.size, 1)] += len(ln.text)
     caption_sizes = [sz for sz, n in caption_chars.items()
                      if abs(sz - body) > 0.5 and n >= 0.4 * size_chars[sz]]
+    # only in flows that hold a caption already: Methods set in the caption size
+    # (J Neurosci: 46-60 % of that size is captions, Science captions 58 %) form
+    # columns of their own, with no caption in them
+    caption_flows = {(ln.page, ln.column) for ln in ordered if ln.kind == Kind.CAPTION}
     # an abstract may share the caption size (NeuroImage: 7.2 pt): first-page
     # text above the first section heading ("1. Introduction"; author names set
     # as a heading do not count) is never a caption by size alone. Without such
@@ -204,7 +213,8 @@ def mark_captions(ordered: list[Line], body: float) -> None:
             if ln.y1 <= first.y0:
                 front.add(id(ln))
     for ln in ordered:
-        if ln.kind == Kind.BODY and id(ln) not in front and any(abs(ln.size - sz) <= 0.15 for sz in caption_sizes):
+        if (ln.kind == Kind.BODY and id(ln) not in front and (ln.page, ln.column) in caption_flows
+                and any(abs(ln.size - sz) <= 0.15 for sz in caption_sizes)):
             ln.kind = Kind.CAPTION
 
 
@@ -366,6 +376,15 @@ def mark_headings(doc: Document, body: float) -> None:
               and not _TERMINAL.search(ln.text) and _all_italic(ln)):
             ln.kind = Kind.HEADING  # "2.1. Participants" in italics (Elsevier, Frontiers)
             italic_headings.add(id(ln))
+    # "Receptive field mapping": a short italic line set larger than the text it
+    # introduces (J Neurosci 2006: 9.5 pt italic over 8.5 pt Methods)
+    for page in doc.pages:
+        for prev, ln, nxt in zip([None, *page.lines], page.lines, [*page.lines[1:], None]):
+            if (nxt is not None and ln.kind == Kind.BODY and nxt.kind == Kind.BODY and _all_italic(ln)
+                    and len(ln.text.split()) <= 10 and not _TERMINAL.search(ln.text)
+                    and ln.size >= nxt.size + 0.5 and not _all_italic(nxt)
+                    and 0 <= nxt.y0 - ln.y1 < 1.5 * ln.height and _HEADING_WORD.search(ln.text)):
+                ln.kind = Kind.HEADING
     _demote_bold_paragraphs(doc)
     # second line of a wrapped italic heading: italic, aligned, directly below
     for page in doc.pages:
@@ -547,9 +566,16 @@ def is_caption_start(ln: Line, prev: Line | None, body: float) -> bool:
 _DANGLING = re.compile(r"(?:[-,(]|\b(?:the|a|an|of|and|or|in|on|at|to|for|with|by|from|that|which|as|is|are|was|were|than|between|we|our|its|their))$", re.I)
 
 
-def _cut_sentence(prev: Line, ln: Line) -> bool:
+def _footnote_into_body(prev: Line, ln: Line, body: float) -> bool:
+    """Small text (affiliations, footnotes) followed by body text: Nature's 8 pt
+    affiliations, then on the next page the 9.5 pt introduction, which starts
+    lowercase after its drop cap. Never one sentence."""
+    return prev.size < body - 0.7 and abs(ln.size - body) <= 0.3
+
+
+def _cut_sentence(prev: Line, ln: Line, body: float) -> bool:
     """Does `prev` end mid-sentence so that `ln` (in another column/page) continues it?"""
-    if _TERMINAL.search(prev.text):
+    if _TERMINAL.search(prev.text) or _footnote_into_body(prev, ln, body):
         return False
     return (_continuation_start(ln.text) or _DANGLING.search(prev.text) is not None
             or re.match(r"[A-Z]{2,}s?\b", ln.text) is not None)  # "...the diagnosed | ID group"
@@ -560,9 +586,10 @@ def _continuation_start(text: str) -> bool:
     return text[:1].islower() or text[:1] in "([0123456789,;"
 
 
-def _continues(prev: Line, ln: Line) -> bool:
+def _continues(prev: Line, ln: Line, body: float) -> bool:
     """An unfinished sentence followed by a lowercase word: same paragraph."""
-    return _TERMINAL.search(prev.text) is None and _continuation_start(ln.text)
+    return (_TERMINAL.search(prev.text) is None and _continuation_start(ln.text)
+            and not _footnote_into_body(prev, ln, body))
 
 
 _MAIN_FLOW = (Kind.BODY, Kind.HEADING, Kind.TITLE)
@@ -587,10 +614,13 @@ def _paragraphs(indexed: list[tuple[int, Line]], body: float, vocab: set[str],
     paras: list[tuple[int, Paragraph]] = []
     prev: Line | None = None
     cur: Paragraph | None = None
-    col_right: dict[tuple[int, int], float] = {}
-    col_left: dict[tuple[int, int], float] = {}
+    # column edges, measured apart for footnote-size text: Nature's 8 pt
+    # affiliations run wider than the 9.5 pt abstract above them, which would
+    # make every abstract line look short
+    col_right: dict[tuple[int, int, bool], float] = {}
+    col_left: dict[tuple[int, int, bool], float] = {}
     for ln in ordered:
-        key = (ln.page, ln.column)
+        key = (ln.page, ln.column, ln.size < body - 0.7)
         col_right[key] = max(col_right.get(key, 0), ln.x1)
         col_left[key] = min(col_left.get(key, 1e9), ln.x0)
 
@@ -604,7 +634,7 @@ def _paragraphs(indexed: list[tuple[int, Line]], body: float, vocab: set[str],
                 new = True
             elif kind in (Kind.HEADING, Kind.TITLE):
                 # a heading only wraps onto a second line when the first one is full
-                prev_short = prev.x1 < col_right[(prev.page, prev.column)] - body * 6
+                prev_short = prev.x1 < col_right[(prev.page, prev.column, prev.size < body - 0.7)] - body * 6
                 new = (
                     not same_flow
                     or (prev_short and not ln.text[:1].islower())
@@ -614,24 +644,24 @@ def _paragraphs(indexed: list[tuple[int, Line]], body: float, vocab: set[str],
                 )
             elif same_flow:
                 gap = ln.y0 - prev.y1
-                indent = ln.x0 - col_left[(ln.page, ln.column)] > body * 0.8
-                short_prev = prev.x1 < col_right[(prev.page, prev.column)] - body * 2.5
+                indent = ln.x0 - col_left[(ln.page, ln.column, ln.size < body - 0.7)] > body * 0.8
+                short_prev = prev.x1 < col_right[(prev.page, prev.column, prev.size < body - 0.7)] - body * 2.5
                 new = (
                     gap > max(prev.height, ln.height) * 0.7
                     or gap < -prev.height  # jumped upward: different region
                     or (indent and _TERMINAL.search(prev.text) is not None)
                     or (short_prev and _TERMINAL.search(prev.text) is not None)
                 )
-                if new and kind == Kind.BODY and _continues(prev, ln):
+                if new and kind == Kind.BODY and _continues(prev, ln, body):
                     new = False  # e.g. "the criterion is [display equation] which, ..."
                 if cur.kind == Kind.CAPTION and kind == Kind.BODY and not new:
                     kind = Kind.CAPTION
             else:
                 # crossing a column or page: continue the sentence if it was visibly cut
-                new = not join_flows or cur.kind == Kind.CAPTION or not _cut_sentence(prev, ln)
+                new = not join_flows or cur.kind == Kind.CAPTION or not _cut_sentence(prev, ln, body)
             new = new or (kind == Kind.CAPTION and _CAPTION.match(ln.text) is not None)
         if new:
-            cur = Paragraph(text=ln.text, kind=kind, page=ln.page)
+            cur = Paragraph(text=ln.text, kind=kind, page=ln.page, size=ln.size)
             paras.append((idx, cur))
         else:
             assert cur is not None
@@ -640,14 +670,16 @@ def _paragraphs(indexed: list[tuple[int, Line]], body: float, vocab: set[str],
     return paras
 
 
-def merge_broken(paras: list[Paragraph], vocab: set[str] = frozenset()) -> list[Paragraph]:
+def merge_broken(paras: list[Paragraph], vocab: set[str] = frozenset(), body: float = 0.0) -> list[Paragraph]:
     """Re-join body paragraphs split mid-sentence ("... early risk" + "stratification and ...")."""
     out: list[Paragraph] = []
     for p in paras:
         prev = next((q for q in reversed(out) if q.kind == Kind.BODY), None) if p.kind == Kind.BODY else None
-        # only look back past non-main-flow paragraphs (captions, footnotes, math)
+        # only look back past non-main-flow paragraphs (captions, footnotes, math);
+        # never from footnote-size text into body text (see _footnote_into_body)
         if prev is not None and all(q.kind not in _MAIN_FLOW for q in out[out.index(prev) + 1:]) \
-                and _TERMINAL.search(prev.text) is None and _continuation_start(p.text):
+                and _TERMINAL.search(prev.text) is None and _continuation_start(p.text) \
+                and not (body and prev.size and prev.size < body - 0.7 and abs(p.size - body) <= 0.3):
             prev.text = _join(prev.text, p.text, vocab)
             continue
         out.append(p)
@@ -702,7 +734,7 @@ def analyse(doc: Document, profile: "JournalProfile", keep_junk: bool = False) -
     for p in paras:
         if p.kind == Kind.HEADING and len(p.text.split()) > 25:
             p.kind = Kind.BODY
-    paras = merge_broken(paras, vocabulary(ordered))
+    paras = merge_broken(paras, vocabulary(ordered), body)
     mark_tables(paras)
     mark_code(paras)
     return paras

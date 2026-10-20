@@ -96,6 +96,7 @@ class Paragraph:
     text: str
     kind: Kind = Kind.BODY
     page: int = 0
+    size: float = 0.0  # font size of its first line (0: unknown)
 
 
 @dataclass

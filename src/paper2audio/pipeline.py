@@ -73,6 +73,10 @@ def _looks_like_prose(text: str) -> bool:
     return capitalised / len(words) < 0.35 and sentences >= 1
 
 
+def _norm_title(text: str) -> str:
+    return re.sub(r"\W+", " ", text).strip().lower()
+
+
 def sectionize(paras: list[Paragraph], profile: JournalProfile,
                front_matter: bool = True) -> tuple[str, list[Section], list[str]]:
     title = " ".join(p.text for p in paras if p.kind == Kind.TITLE).strip()
@@ -91,7 +95,7 @@ def sectionize(paras: list[Paragraph], profile: JournalProfile,
     in_front, skipping, after_refs = front_matter, False, False
     junk = profile.junk_paragraph_patterns
 
-    for p in paras:
+    for pos, p in enumerate(paras):
         if p.kind == Kind.TITLE:
             continue
         if p.kind == Kind.HEADING:
@@ -99,6 +103,12 @@ def sectionize(paras: list[Paragraph], profile: JournalProfile,
             if in_front and not profile.ends_front_matter(t):
                 continue  # e.g. "ARTICLE INFO", author names set in bold
             in_front = False
+            # the title repeated in the last quarter: Science's end page (authors,
+            # editor's summary, permissions). Earlier repeats are a title page or a
+            # running title above the abstract, and reading goes on.
+            if title and pos >= 0.75 * len(paras) and _norm_title(t) == _norm_title(title):
+                skipped.append(t)
+                break
             if profile.is_end(t):
                 skipped.append(t)
                 break
@@ -130,6 +140,11 @@ def sectionize(paras: list[Paragraph], profile: JournalProfile,
             if not _looks_like_prose(p.text):
                 continue
             in_front = False
+        last = cur.paragraphs[-1] if cur.paragraphs else None
+        if last is not None and p.text[:1].islower() and not re.search(r"[.!?:]['\"”’)]*$", last.text):
+            # a sentence interrupted by a dropped footnote or junk line
+            cur.paragraphs[-1] = Paragraph(text=f"{last.text} {p.text}", kind=last.kind, page=last.page)
+            continue
         cur.paragraphs.append(p)
     return title, [s for s in sections if s.paragraphs], skipped
 
