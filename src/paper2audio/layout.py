@@ -190,25 +190,39 @@ def mark_captions(ordered: list[Line], body: float) -> None:
             ln.kind = Kind.CAPTION
 
 
-def mark_figure_text(doc: Document) -> None:
+def _isolated(ln: Line, page: Page) -> bool:
+    """No line of prose directly above or below: a label, not the end of a paragraph."""
+    gap = 1.6 * ln.height
+    return not any(o is not ln and o.kind == Kind.BODY and len(o.text.split()) >= 6
+                   and o.x1 > ln.x0 and o.x0 < ln.x1 and ln.y0 - gap <= o.y1 and o.y0 <= ln.y1 + gap
+                   for o in page.lines)
+
+
+def mark_figure_text(doc: Document, body: float) -> None:
     """Axis labels, legends and panel text drawn inside figures.
 
     Lines inside a figure area are figure text, unless the area holds several
     full lines of prose (a shaded text box, or an area that overlaps the text).
+    Short labels in a smaller font just outside an area (axis titles that the
+    drawing clusters miss) are figure text too.
     """
-    pad = 6
+    pad, near = 6, 24
     for page in doc.pages:
         for fx0, fy0, fx1, fy1 in page.figures:
             inside = [ln for ln in page.lines if ln.kind in (Kind.BODY, Kind.HEADING, Kind.FOOTNOTE)
                       and fx0 - pad <= ln.cx <= fx1 + pad and fy0 - pad <= (ln.y0 + ln.y1) / 2 <= fy1 + pad
                       and ln.x0 >= fx0 - 3 * pad and ln.x1 <= fx1 + 3 * pad]
-            if not inside:
-                continue
             prose = [ln for ln in inside if len(ln.text.split()) >= 9]
             if len(prose) >= 3:
                 continue  # the area overlaps running text (or is a shaded text box): leave it
             for ln in inside:
                 if not _CAPTION.match(ln.text):
+                    ln.kind = Kind.OTHER
+            for ln in page.lines:
+                if (ln.kind == Kind.BODY and ln.size < body - 0.5 and not ln.bold
+                        and len(ln.text.split()) <= 6 and not re.search(r"[.!?:]$", ln.text.strip())
+                        and ln.x1 > fx0 and ln.x0 < fx1 and fy0 - near <= ln.y1 and ln.y0 <= fy1 + near
+                        and not _CAPTION.match(ln.text) and _isolated(ln, page)):
                     ln.kind = Kind.OTHER
 
 
@@ -547,7 +561,7 @@ def analyse(doc: Document, profile: "JournalProfile", keep_junk: bool = False) -
     mark_headers_footers(doc, profile)
     mark_line_numbers(doc)
     mark_small_text(doc, body, profile)
-    mark_figure_text(doc)
+    mark_figure_text(doc, body)
     mark_math(doc)
     mark_headings(doc, body)
     profile.classify_lines(doc, body)

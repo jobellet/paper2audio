@@ -82,3 +82,24 @@ def test_soft_hyphen_join():
     assert _join("DMN–LN hypocon­", "nectivity and") == "DMN–LN hyponnectivity and".replace("hyponn", "hypoconn")
     assert _join("twenty language-", "aligned models", {"language-aligned"}) == "twenty language-aligned models"
     assert _join("percep-", "tion is") == "perception is"
+
+
+def test_axis_labels_next_to_figure_dropped():
+    """Small isolated labels just outside a drawing cluster are figure text;
+    small-font prose beside the figure, and its short last line, are kept."""
+    from paper2audio.layout import mark_figure_text
+    from paper2audio.models import Document, Kind, Line, Page
+
+    def line(text, x0, y0, x1, size=9.0):
+        return Line(text, x0, y0, x1, y0 + size, size, False, 0)
+
+    axis = line("Amount of training samples (s)", 97, 292, 219)            # 11 pt below the panel
+    title = line("Training subject", 362, 235, 426)                       # 16 pt above the panel
+    prose = [line("A small-font text box that sits right next to the figure,", 300, 120, 560),
+             line("so its words must still be read", 300, 131, 450)]       # short last line of a paragraph
+    body = line("Thus, through training, the net-", 307, 730, 560, size=10.0)
+    page = Page(0, 600, 800, lines=[axis, title, *prose, body],
+                figures=[(79, 226, 231, 281), (267, 260, 537, 485), (230, 100, 290, 140)])
+    mark_figure_text(Document("x.pdf", [page]), body=10.0)
+    assert axis.kind == title.kind == Kind.OTHER
+    assert [ln.kind for ln in (*prose, body)] == [Kind.BODY] * 3
