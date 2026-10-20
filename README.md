@@ -1,73 +1,103 @@
 # paper2audio
 
-Turn a scientific paper (PDF) into an audio file you can listen to, with the clutter
-removed and the text read in the right order.
+Listen to scientific papers. paper2audio turns a PDF into an MP3 with **one chapter
+per section**, read in the right order and without the clutter: no citations,
+statistics, figure references, running heads, page numbers or reference list.
 
-**What it does**
-- Follows the reading order: left column, then right column, then the next page.
-  This also works around side boxes, full-width figures and two-column captions.
-  Sentences that break across a column, a page or an equation are joined back
-  together.
-- Removes running heads and footers, page numbers, manuscript line numbers, rotated
-  margin stamps, DOIs, URLs, e-mail addresses and ORCIDs.
-- Removes numeric citations (`[3, 5–7]`, superscripts) and author–year citations
-  (`(Smith et al., 2019; …)`). "Duhamel et al. (1992)" becomes "Duhamel et al".
-- Removes statistics: `(t(11) = 3.21, p = .008, d = 0.93)`, `F(1, 11) = 18.2, p < .001`,
-  95% CIs and Bayes factors. Prose such as "(n = 12; 7 female)" is kept.
-- Removes references to figures and tables (`(Fig. 2A)`), figure captions, figure
-  labels, tables, footnotes, equation fragments and code listings.
-- Skips the front matter (authors, affiliations, dates, keywords) and these sections:
-  References, Acknowledgements, Funding, Author contributions, Competing interests,
-  Data availability, Supplementary information and similar. It still reads a Methods
-  section placed after the reference list (Nature, Cell STAR Methods).
-- Rewrites text so it sounds natural: "e.g." becomes "for example", "50 ms" becomes
-  "50 milliseconds", "300°/s" becomes "300 degrees per second", "±" becomes
-  "plus or minus".
-- Writes one MP3 with a **chapter per section**.
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jobellet/paper2audio/blob/main/notebooks/paper2audio_colab.ipynb)
+[![CI](https://github.com/jobellet/paper2audio/actions/workflows/ci.yml/badge.svg)](https://github.com/jobellet/paper2audio/actions/workflows/ci.yml)
 
-## Install
+## Quick start
 
-```bash
-pip install -e ".[edge]"        # neural voices (needs internet)
-pip install -e ".[kokoro]"      # offline neural voices (model auto-downloaded, ~340 MB)
-pip install -e ".[espeak]"      # fully offline fallback (robotic voice)
-pip install -e ".[dev]"         # tests
-```
-`ffmpeg` must be on your PATH.
+### Option 1: in your browser, nothing to install
 
-## Use
+Click **Open in Colab** above, choose **Runtime → Change runtime type → T4 GPU**, then
+**Runtime → Run all** and upload your PDF. About two minutes later you get an MP3
+read by a natural-sounding neural voice (Kokoro-82M), plus the transcript.
+
+### Option 2: on your computer
+
+You need Python 3.10 or newer and [ffmpeg](https://ffmpeg.org/):
+
+| system  | install ffmpeg              |
+|---------|-----------------------------|
+| macOS   | `brew install ffmpeg`       |
+| Ubuntu  | `sudo apt install ffmpeg`   |
+| Windows | `winget install ffmpeg`     |
+
+Then install paper2audio, preferably in its own environment:
 
 ```bash
-paper2audio paper.pdf                          # -> paper.mp3 (auto-detects the journal)
-paper2audio paper.pdf --transcript             # also write paper.txt: check what will be read
-paper2audio paper.pdf -e none                  # transcript only, no audio
-paper2audio paper.pdf --fast                   # quick robotic voice (espeak, offline, ~1 min per paper)
-paper2audio paper.pdf --fast -e api            # quick, via your own TTS API (see below)
-paper2audio paper.pdf -v en-GB-SoniaNeural -r 1.2  # voice and speed
-paper2audio paper.pdf --skip methods           # skip more sections (regex)
-paper2audio paper.pdf --captions               # also read figure captions
-paper2audio paper.pdf -p elsevier              # force a journal profile
-paper2audio --list-profiles
-paper2audio paper.pdf -e kokoro -v bf_emma     # offline neural voice
-paper2audio paper.pdf --check                  # paragraphs that look cut or misplaced
-paper2audio paper.pdf --debug                  # layout dump for tuning heuristics
+conda create -n paper2audio python=3.12     # or: python -m venv .venv
+conda activate paper2audio
+pip install "paper2audio[edge,espeak] @ git+https://github.com/jobellet/paper2audio"
 ```
 
-TTS engines (`-e`):
+And convert a paper:
 
-| engine   | quality           | offline | notes                                                    |
-|----------|-------------------|---------|----------------------------------------------------------|
-| `edge`   | neural, very good | no      | default; `edge-tts list-voices` shows all voices         |
-| `kokoro` | neural, very good | yes     | `am_michael`, `am_adam`, `af_heart`, `bm_george`, `bf_emma`, … ~2× real time on 4 CPU cores |
-| `piper`  | neural, good      | yes     | `pip install piper-tts`; `-v path/to/voice.onnx`         |
-| `say`    | good              | yes     | macOS only                                               |
-| `espeak` | robotic           | yes     | installed with pip, no system package needed; `--fast` default |
-| `api`    | depends on server | no      | any OpenAI-compatible `/v1/audio/speech` endpoint, see below |
+```bash
+paper2audio paper.pdf                # -> paper.mp3, Microsoft Edge neural voice (needs internet)
+paper2audio paper.pdf --fast         # -> paper.mp3 in about a minute, robotic offline voice
+```
 
-Network engines (`edge`, `api`) synthesise 4 sections at once; change this with `-j`.
+Not sure what will be read? `paper2audio paper.pdf -e none` writes only the
+transcript (`paper.txt`) so you can check it first.
 
-The `api` engine works with OpenAI and with self-hosted servers that copy its API
-(Kokoro-FastAPI, openedai-speech, LocalAI, …):
+## What gets read, and what doesn't
+
+**Read, in order:** the title, the abstract and every section of the main text,
+left column then right column then the next page, with sentences that break across
+columns, pages or equations joined back together. A Methods section placed after the
+references (Nature, Cell STAR Methods) is still read.
+
+**Removed:**
+- citations: `[3, 5–7]`, superscripts, `(Smith et al., 2019; …)`. "Duhamel et al.
+  (1992)" becomes "Duhamel et al".
+- statistics: `(t(11) = 3.21, p = .008, d = 0.93)`, `F(1, 11) = 18.2`, 95% CIs and
+  Bayes factors. Prose such as "(n = 12; 7 female)" is kept.
+- figure and table references (`(Fig. 2A)`), captions, figure labels, tables,
+  footnotes, display equations and code listings.
+- running heads and footers, page and line numbers, margin stamps, DOIs, URLs, e-mail
+  addresses and ORCIDs.
+- front matter (authors, affiliations, dates, keywords) and the References,
+  Acknowledgements, Funding, Author contributions, Competing interests, Data
+  availability and Supplementary sections.
+
+**Rewritten to sound natural:** "e.g." → "for example", "50 ms" → "50 milliseconds",
+"300°/s" → "300 degrees per second", "±" → "plus or minus".
+
+## Options
+
+```bash
+paper2audio paper.pdf --transcript            # also write paper.txt
+paper2audio paper.pdf -o ~/Podcasts/smith.mp3 # output file
+paper2audio paper.pdf -v en-GB-SoniaNeural    # another voice (edge-tts list-voices)
+paper2audio paper.pdf -r 1.2                  # 20% faster
+paper2audio paper.pdf --skip methods          # skip more sections (regex, repeatable)
+paper2audio paper.pdf --captions              # also read figure captions
+paper2audio paper.pdf -p elsevier             # force a journal profile (--list-profiles)
+paper2audio paper.pdf --year 2014             # if the publication year is detected wrongly
+paper2audio paper.pdf --check                 # list paragraphs that look cut or misplaced
+```
+
+### Voices (`-e`)
+
+Extras go in the brackets of the install command, e.g. `paper2audio[edge,kokoro]`.
+
+| engine   | quality           | offline | install / notes                                                    |
+|----------|-------------------|---------|--------------------------------------------------------------------|
+| `edge`   | neural, very good | no      | `[edge]` extra; the default                                        |
+| `kokoro` | neural, very good | yes     | `[kokoro]` extra; model downloaded on first use (~340 MB); voices `am_michael`, `af_heart`, `bm_george`, `bf_emma`, …; ~2× real time on 4 CPU cores |
+| `piper`  | neural, good      | yes     | `pip install piper-tts`; `-v path/to/voice.onnx`                   |
+| `say`    | good              | yes     | macOS only, nothing to install                                     |
+| `espeak` | robotic           | yes     | `[espeak]` extra; what `--fast` uses                               |
+| `api`    | depends on server | no      | any OpenAI-compatible text-to-speech service, see below            |
+
+`edge` and `api` synthesise 4 sections at once; change this with `-j`.
+
+**Your own TTS service (`-e api`).** Works with OpenAI and with self-hosted servers
+that implement the same `/v1/audio/speech` API (Kokoro-FastAPI, openedai-speech,
+LocalAI, …):
 
 ```bash
 export PAPER2AUDIO_TTS_URL=http://localhost:8880/v1/audio/speech  # default: OpenAI
@@ -76,17 +106,7 @@ export PAPER2AUDIO_TTS_MODEL=kokoro     # default: tts-1
 paper2audio paper.pdf -e api -v af_heart
 ```
 
-### Google Colab (free GPU)
-
-[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jobellet/paper2audio/blob/main/notebooks/paper2audio_colab.ipynb)
-
-[`notebooks/paper2audio_colab.ipynb`](notebooks/paper2audio_colab.ipynb) installs
-paper2audio on Colab, asks you to upload a PDF and returns an MP3 read by
-Kokoro-82M on the GPU (about 1–2 minutes per paper on a T4). Open it from GitHub in
-Colab (File → Open notebook → GitHub), or upload the file. If the repository is
-private, add a Colab secret `GITHUB_TOKEN` that can read it.
-
-From Python:
+### From Python
 
 ```python
 from paper2audio import run
@@ -94,7 +114,56 @@ script = run("paper.pdf")          # Script(title, sections, profile, skipped)
 print(script.to_text())
 ```
 
-## How it works
+## Supported journals
+
+The journal is detected automatically from the DOI and the first two pages; each
+journal family has a *profile* with its own rules.
+
+| profile           | matches                                   | checked on a real PDF |
+|-------------------|-------------------------------------------|-----------------------|
+| `manuscript`      | submitted manuscripts (line numbers, one column), any journal | ✓ |
+| `springer_nature` | 10.1038, 10.1007, 10.1186 (Nature, Nature Mental Health, …)  | ✓ |
+| `biorxiv`         | 10.1101 (bioRxiv, medRxiv)                | ✓ |
+| `aps`             | 10.1152 (J Neurophysiol, J Appl Physiol)  | ✓ |
+| `elsevier`        | 10.1016 (Vision Res, NeuroImage, Cell, …) | not yet |
+| `plos`            | 10.1371                                   | not yet |
+| `elife`           | 10.7554                                   | not yet |
+| `jneurosci`       | 10.1523                                   | not yet |
+| `jov`             | 10.1167 (ARVO)                            | not yet |
+| `arxiv`           | arXiv preprints                           | not yet |
+| `generic`         | anything else                             | fallback |
+
+If a paper comes out wrong, please open an issue with the journal name and what was
+wrong (`paper2audio paper.pdf --check` helps). Please don't attach copyrighted PDFs.
+
+## Known limitations
+
+- Scanned PDFs without a text layer need OCR first (for example `ocrmypdf`).
+- Inline math inside sentences is read from its text layer, which can be garbled,
+  mostly in Methods sections.
+- Narrative numeric citations ("described in 13") are not removed.
+
+## Troubleshooting
+
+- **`ffmpeg is required`**: install ffmpeg (see above) and open a new terminal.
+- **pip spends a long time building PyMuPDF**: no prebuilt wheel exists for your
+  platform's newest version. Run `pip install --only-binary=pymupdf pymupdf` first.
+- **Edge voice fails or hangs**: it needs internet. Use `--fast` or `-e kokoro` offline.
+
+---
+
+## Contributing
+
+### Development setup
+
+```bash
+git clone https://github.com/jobellet/paper2audio && cd paper2audio
+conda create -n paper2audio python=3.12 && conda activate paper2audio
+pip install -e ".[dev,edge]"
+pytest
+```
+
+### How it works
 
 ```
 extract.py   PDF -> positioned lines (font size, bold, bbox) + figure areas (images,
@@ -110,56 +179,10 @@ profiles/    one module per journal / publisher
 tts/         one module per TTS engine
 ```
 
-## Journal profiles
-
-Each journal family has a profile in `src/paper2audio/profiles/`. The best match is
-picked automatically from DOI prefixes and signature strings on the first two pages.
-
-| profile           | matches                                   | specifics                                                  |
-|-------------------|-------------------------------------------|------------------------------------------------------------|
-| `generic`         | anything                                  | fallback                                                   |
-| `manuscript`      | submitted manuscripts, any journal        | detected by layout (line numbers, one column), not by journal name; a published article in the same journal gets that journal's profile |
-| `arxiv`           | arXiv preprints                           | margin stamp, conference banners                           |
-| `biorxiv`         | 10.1101 (bioRxiv, medRxiv)                | copyright banner on every page, line numbers               |
-| `elsevier`        | 10.1016 (Vision Res, NeuroImage, Cell, …) | masthead, ARTICLE INFO box, CRediT, STAR Methods           |
-| `springer_nature` | 10.1038, 10.1007, 10.1186                 | Methods after References, Reporting summary, Extended Data |
-| `plos`            | 10.1371                                   | first-page side bar, `3 / 25` running head                 |
-| `elife`           | 10.7554                                   | side bar, decision letter, author response                 |
-| `jneurosci`       | 10.1523                                   | SfN running heads, first-page footnote                     |
-| `aps`             | 10.1152 (J Neurophysiol, J Appl Physiol)  | small-caps headings, citation line before abstract         |
-| `jov`             | 10.1167 (ARVO)                            | download stamp, citation box                               |
-
-### Publication year and layout eras
-
-Journals redesign their layout from time to time, so the same profile may need
-different rules for a 2012 and a 2024 article. `year.py` estimates the publication
-year from first-page clues, in this order:
-1. "Published (online)" / "First published"
-2. a preprint's "posted" date
-3. the journal citation line ("J Neurophysiol 121: 646–661, 2019", "Nature | Vol 617 | 11 May 2023")
-4. "Accepted"
-5. "©"
-6. as a last resort, the PDF creation date
-
-`--year` overrides the estimate. A profile then switches its rules by year:
-
-```python
-class JNeurophysiol(APS):
-    eras = (
-        (None, 2015, {"header_band": 0.12}),                    # before the redesign
-        (2016, None, {"junk_lines": APS.junk_lines + (r"^New layout banner",)}),
-    )
-
-    def adapt(self, year):              # for anything the table cannot express
-        super().adapt(year)
-        if year and year >= 2020:
-            ...
-```
-
 ### Adding a journal
 
-1. Run `paper2audio paper.pdf --transcript` and read the `.txt` file to see what
-   comes out wrong.
+1. Run `paper2audio paper.pdf --transcript -e none` and read the `.txt` file to see
+   what comes out wrong.
 2. Run `paper2audio paper.pdf --debug` to see every line with its column, kind, font
    size and position, in reading order.
 3. Create `src/paper2audio/profiles/<journal>.py`. Modules in that folder load
@@ -192,49 +215,63 @@ class CurrentBiology(Generic):
     # def postprocess(self, sections): ...           final edits
 ```
 
-4. Add tests:
-   - `tests/test_profiles.py` uses synthetic papers from `tests/fixtures.py`. Their
-     sentences are numbered (`mk001`, `mk002`, …), so tests can check the reading
-     order exactly.
-   - Add the paper to the regression corpus with
-     `python -m paper2audio.corpus add` (see [CORPUS.md](CORPUS.md)).
-
 Tunable parameters on every profile: `header_band` / `footer_band` (page fraction that
 can hold running heads), `small_text_ratio`, `read_captions`, `read_footnotes`,
 `read_tables`, `references_end_main_text`, `front_matter_end`.
 
-## Tests and CI
+4. Add tests: `tests/test_profiles.py` uses synthetic papers from `tests/fixtures.py`
+   whose sentences are numbered (`mk001`, `mk002`, …), so tests can check the reading
+   order exactly. Then add the real paper to your regression corpus (below).
+
+### Publication year and layout eras
+
+Journals redesign their layout from time to time, so a profile may need different
+rules for a 2012 and a 2024 article. `year.py` estimates the publication year from
+first-page clues, in this order: "Published (online)" / "First published", a
+preprint's "posted" date, the journal citation line ("J Neurophysiol 121: 646–661,
+2019"), "Accepted", "©", and as a last resort the PDF creation date. `--year`
+overrides the estimate. A profile then switches its rules by year:
+
+```python
+class JNeurophysiol(APS):
+    eras = (
+        (None, 2015, {"header_band": 0.12}),                    # before the redesign
+        (2016, None, {"junk_lines": APS.junk_lines + (r"^New layout banner",)}),
+    )
+
+    def adapt(self, year):              # for anything the table cannot express
+        super().adapt(year)
+        if year and year >= 2020:
+            ...
+```
+
+### Tests, CI and the regression corpus
 
 ```bash
-pytest                                   # everything
+pytest                                   # unit tests on synthetic papers (+ corpus if present)
 python -m paper2audio.corpus check       # real papers vs approved transcripts
 ```
 
-The regression corpus is a set of real papers, each with an approved transcript
-(`expected.txt`) and invariants (`case.json`). It lives in a separate **private**
-repository, checked out at `tests/corpus/`, because the PDFs and their transcripts
-are copyrighted. The GitHub Actions workflow (`.github/workflows/ci.yml`) runs the
-unit tests on every push, and also the corpus whenever the `CORPUS_TOKEN` secret is
-set. Any heuristic change that alters an approved transcript fails CI.
+Heuristics that fix one journal can break another, so changes are checked against a
+**regression corpus**: real papers, each with a transcript a person approved. Because
+the PDFs are copyrighted, the corpus lives in a separate **private** repository
+checked out at `tests/corpus/` (git-ignored). Each contributor keeps their own:
 
-When the change is an improvement, approve it:
+[![Create your private corpus repository](https://img.shields.io/badge/GitHub-Create%20your%20private%20corpus%20repo-24292f?logo=github)](https://github.com/new?name=paper2audio-corpus&visibility=private&description=Private%20regression%20corpus%20for%20paper2audio%20%28copyrighted%20PDFs%2C%20do%20not%20make%20public%29)
+
+```bash
+python -m paper2audio.corpus init --remote https://github.com/<you>/paper2audio-corpus.git
+python -m paper2audio.corpus add paper.pdf nature-2023-smith --source "..." --licence "CC BY 4.0"
+```
+
+GitHub Actions (`.github/workflows/ci.yml`) runs the unit tests on every push, and the
+corpus too when the `CORPUS_TOKEN` secret is set. If a change alters an approved
+transcript on purpose, review and approve it:
 
 ```bash
 python -m paper2audio.corpus diff nature-2023-cebra
 python -m paper2audio.corpus update nature-2023-cebra
 ```
 
-Then push the corpus repository. See [CORPUS.md](CORPUS.md) for the one-time setup
-and for adding papers.
-
-## Known limitations
-
-- Scanned PDFs with no text layer would need OCR first (for example `ocrmypdf`).
-- Display equations are dropped when they are recognisable as math. Inline math
-  inside sentences is read as its text layer, which can be garbled, mostly in
-  Methods sections.
-- Narrative numeric citations ("described in 13") are not removed.
-- Profiles checked against real PDFs so far: manuscript (a manuscript submitted to JoCN), Nature,
-  Nature Mental Health, bioRxiv and J Neurophysiol. The other profiles (Elsevier,
-  PLOS, eLife, J Neurosci, JOV, arXiv) are based on each publisher's known layout and
-  still need checking against a real PDF.
+then push the corpus repository **before** the code. [CORPUS.md](CORPUS.md) has the
+step-by-step setup, including the CI token.

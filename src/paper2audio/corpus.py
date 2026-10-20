@@ -11,6 +11,7 @@ intended improvement, review the diff and approve it:
     python -m paper2audio.corpus diff nature-2023-cebra
     python -m paper2audio.corpus update [case...] # approve: rewrite expected.txt
     python -m paper2audio.corpus add paper.pdf my-case-id --source "..." --licence "..."
+    python -m paper2audio.corpus init [--remote URL]  # start an empty corpus
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,6 +33,61 @@ from .pipeline import run
 # transcripts), checked out at tests/corpus/ or wherever $PAPER2AUDIO_CORPUS points.
 ROOT = Path(os.environ.get("PAPER2AUDIO_CORPUS", Path(__file__).resolve().parents[2] / "tests" / "corpus"))
 _END = re.compile(r"[.!?:)\]”\"’]$")
+
+README = """\
+# paper2audio regression corpus
+
+## What this repository is for
+
+[paper2audio](https://github.com/jobellet/paper2audio) turns scientific PDFs into
+audio. It relies on layout heuristics (columns, running heads, captions, citations),
+and a fix for one journal can quietly break another. This repository holds real
+papers together with the transcript paper2audio produced for each one, checked by a
+person. Every change to the heuristics is re-run against all of them, locally and in
+CI, so a regression shows up as a failing test instead of a garbled audio file.
+
+It is **private** because published PDFs and the transcripts derived from them are
+usually copyrighted. Keep it private, and only give read access to people and CI
+tokens that need it.
+
+## Layout
+
+```
+<case-id>/paper.pdf      the paper
+<case-id>/case.json      source, licence, expected profile and year, and invariants:
+                         sections, must_contain, must_not_contain, max_cut_paragraphs
+<case-id>/expected.txt   the approved transcript
+```
+
+There are two levels of check:
+- **Invariants** (`case.json`) must always hold: key sentences are present, known
+  junk is absent, the profile and year are right. `update` refuses to approve a
+  transcript that breaks them.
+- **Exact transcript** (`expected.txt`) catches any change at all, including
+  improvements. When a diff is an intended improvement, approve it.
+
+```bash
+python -m paper2audio.corpus check                 # what CI runs
+python -m paper2audio.corpus diff [case]           # word-level diff against expected.txt
+python -m paper2audio.corpus update [case]         # approve the new transcript(s)
+python -m paper2audio.corpus add paper.pdf elife-2021-smith \\
+       --source "Smith et al. (2021) eLife 10:e12345" --licence "CC BY 4.0" --redistributable
+```
+
+After `add`, read `expected.txt` from start to finish. Fix the heuristics until it is
+right, then list a few key sentences and the junk you saw removed in `case.json`.
+Use one case id per journal **and era**, for example `jneurophysiol-2019-…` and
+`jneurophysiol-2024-…`, because layouts change over the years.
+
+When a heuristic change alters a transcript on purpose, push the updated
+`expected.txt` here first, then push the code change: CI checks out the latest
+commit of this repository.
+
+## Licences
+
+| case | licence | redistributable |
+|---|---|---|
+"""
 
 
 @dataclass
@@ -190,6 +247,23 @@ def _cmd_add(args) -> int:
     return 0
 
 
+def _cmd_init(args) -> int:
+    root = args.root
+    if cases(root):
+        print(f"{root} already holds a corpus")
+        return 1
+    root.mkdir(parents=True, exist_ok=True)
+    if not (root / "README.md").exists():
+        (root / "README.md").write_text(README, encoding="utf-8")
+    if not (root / ".git").exists():
+        subprocess.run(["git", "init", "-q", "-b", "main", str(root)], check=True)
+    if args.remote:
+        subprocess.run(["git", "-C", str(root), "remote", "add", "origin", args.remote], check=True)
+    print(f"empty corpus in {root}. Next: python -m paper2audio.corpus add paper.pdf <case-id> ..., "
+          f"then commit and push it to your private repository (see CORPUS.md)")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m paper2audio.corpus", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -206,8 +280,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--source", default="")
     p.add_argument("--licence", default="unknown")
     p.add_argument("--redistributable", action="store_true")
+    p = sub.add_parser("init", help="start an empty corpus (README + git repository)")
+    p.add_argument("--remote", help="URL of your private corpus repository, set as origin")
     args = ap.parse_args(argv)
-    return {"check": _cmd_check, "diff": _cmd_diff, "update": _cmd_update, "add": _cmd_add}[args.cmd](args)
+    commands = {"check": _cmd_check, "diff": _cmd_diff, "update": _cmd_update, "add": _cmd_add, "init": _cmd_init}
+    return commands[args.cmd](args)
 
 
 if __name__ == "__main__":
