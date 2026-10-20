@@ -9,3 +9,4 @@ __pycache__/
 
 # regression corpus: separate private repository (copyright), see CORPUS.md
 /tests/corpus/
+*.bundle
