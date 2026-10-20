@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.13"]
+    env:
+      # private repository holding the regression corpus (PDFs + approved transcripts)
+      CORPUS_REPO: ${{ vars.CORPUS_REPO || format('{0}/paper2audio-corpus', github.repository_owner) }}
+      HAS_CORPUS_TOKEN: ${{ secrets.CORPUS_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install
+        run: pip install -e ".[dev]"
+      - name: Unit tests (synthetic papers, cleaning rules, year detection, audio)
+        run: pytest -q --ignore=tests/test_corpus.py
+
+      - name: Check out the private corpus
+        if: env.HAS_CORPUS_TOKEN == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.CORPUS_REPO }}
+          token: ${{ secrets.CORPUS_TOKEN }}
+          path: tests/corpus
+      - name: Regression corpus (real papers vs approved transcripts)
+        if: env.HAS_CORPUS_TOKEN == 'true'
+        run: |
+          python -m paper2audio.corpus check || {
+            echo "::error::A transcript changed. If intended: in the corpus repo run 'python -m paper2audio.corpus diff', then 'python -m paper2audio.corpus update <case>' and push expected.txt."
+            python -m paper2audio.corpus diff
+            exit 1
+          }
+      - name: Corpus skipped
+        if: env.HAS_CORPUS_TOKEN != 'true'
+        run: echo "::notice::CORPUS_TOKEN secret not available (fork PR or not configured); regression corpus not run."

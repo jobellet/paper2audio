@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "paper2audio"
+version = "0.1.0"
+description = "Turn scientific papers (PDF) into clean, correctly ordered audio narrations."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pymupdf>=1.24",
+]
+
+[project.optional-dependencies]
+edge = ["edge-tts>=6.1"]          # neural voices, needs internet
+espeak = ["espeakng-loader>=0.2"] # fully offline, pip-only, robotic voice
+kokoro = ["kokoro-onnx>=0.4"]     # offline neural voices, model auto-downloaded (~340 MB)
+piper = ["piper-tts>=1.2"]        # offline neural voices (download a .onnx voice)
+dev = ["pytest>=8", "reportlab>=4", "edge-tts>=6.1", "espeakng-loader>=0.2"]
+
+[project.scripts]
+paper2audio = "paper2audio.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
