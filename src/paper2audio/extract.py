@@ -19,8 +19,13 @@ _MONO_FONTS = ("courier", "mono", "consola", "menlo", "inconsolata", "sourcecode
 
 def _is_bold(span: dict) -> bool:
     font = span.get("font", "").lower()
-    return (bool(span.get("flags", 0) & 16) or any(w in font for w in ("bold", "black", "heavy", "semibold"))
-            or re.search(r"hn-(h|hv|b|bd)$", font) is not None)  # Helvetica Neue weights: AdvPSHN-H (Cell Press)
+    if span.get("flags", 0) & 16 or any(w in font for w in ("bold", "black", "heavy", "semibold")):
+        return True
+    # obfuscated names (AdvOT1efcda3b.B, AdvPSA5BD): trust only an explicit style suffix
+    if re.search(r"[0-9a-f]{8}", font) or re.fullmatch(r"(?:[a-z]{6}\+)?adv(?:ps|ot|tt|p)?[0-9a-f]+(\.\w+)?", font):
+        return re.search(r"\.b(i|o)?$", font) is not None
+    # abbreviated weights: AdvPSHN-H (Helvetica Neue Heavy), AdvCaceiliaHVY, AdvCaeciliaBdIt
+    return re.search(r"(hn-(h|hv|b|bd)|hvy|bd(it|i)?|[-_]b(i|it)?)$", font) is not None
 
 
 def _make_span(s: dict) -> Span:

@@ -147,8 +147,9 @@ def clean_sections(sections: list[Section], profile: JournalProfile) -> list[Sec
         for part in s.title.split(": ") if s.title else []:  # "THEORIES OF CONSCIOUSNESS: Global workspace"
             part = re.sub(r"^\s*(\d+(\.\d+)*|[IVX]+)\.?\s+", "", part)  # "II. METHODS" -> "METHODS"
             spoken = to_speech(apply_rules(normalize_unicode(part), rules))
-            # "INTRODUCTION" is not an acronym; in a mixed title, "Method 6: DGCCA" is
-            caps = part.isupper() and (s.title.isupper() or len(re.findall(r"[^\W\d_]{3,}", part)) >= 2)
+            # "INTRODUCTION" is not an acronym; "PCA" and, in a mixed title, "Method 6: DGCCA" are
+            caps = part.isupper() and (len(re.findall(r"[^\W\d_]{3,}", part)) >= 2
+                                       or (s.title.isupper() and len(part.strip()) > 4))
             parts.append(spoken.capitalize() if caps else spoken)
         title = ": ".join(parts)
         # "2. Methods: 2.1 Participants" -> "Methods: Participants"

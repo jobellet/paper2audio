@@ -1,3 +1,4 @@
+import pytest
 import re
 
 import pymupdf
@@ -103,3 +104,16 @@ def test_axis_labels_next_to_figure_dropped():
     mark_figure_text(Document("x.pdf", [page]), body=10.0)
     assert axis.kind == title.kind == Kind.OTHER
     assert [ln.kind for ln in (*prose, body)] == [Kind.BODY] * 3
+
+
+@pytest.mark.parametrize("font, bold", [
+    ("AdvPSHN-H", True), ("AdvPSHN-M", False),              # Cell Press: Helvetica Neue Heavy / Medium
+    ("AdvCaceiliaHVY", True), ("AdvCaeciliaBdIt", True),    # Cortex
+    ("AdvCaeciliaRm", False), ("AdvCaeciliaLtSc", False),
+    ("AdvOT1efcda3b.B", True), ("AdvOT7fb33346.I", False),  # obfuscated names: only the suffix counts
+    ("AdvOTa1b2c3bd", False), ("AdvPSA5BD", False), ("AdvPSA183", False), ("AdvPSMPi6", False),  # eLife
+    ("Helvetica-Bold", True), ("MinionPro-Bd", True), ("Times-Roman", False), ("Arial-ItalicMT", False),
+])
+def test_bold_from_font_name(font, bold):
+    from paper2audio.extract import _is_bold
+    assert _is_bold({"font": font, "flags": 0}) is bold

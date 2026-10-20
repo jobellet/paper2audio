@@ -21,6 +21,7 @@ _CAPTION = re.compile(
     re.I,
 )
 _NUMBERED_HEADING = re.compile(r"^(\d+(\.\d+)*\.?|[IVX]+\.|[A-H]\.)\s+[A-Z]")
+_SUBSECTION_NUMBER = re.compile(r"^\d+(\.\d+)+\.?\s+[A-Z]")  # "2.1. ", "3.2.1 "
 _HEADING_WORD = re.compile(r"[A-Za-z]{4,}|^[A-Z]{2,}\b")  # "Methods", "RNA"; not "a" or "f x"
 _CODEISH = re.compile(r"[\w.]+\(|\w+_\w+|^[{}\[\]=#]+$|^(import|def|return|lambda)$|[a-z_]+\.[a-z_]+\(?$")
 _TERMINAL = re.compile(r"[.!?:]['\"”’)]*$")
@@ -169,7 +170,11 @@ def mark_captions(ordered: list[Line], body: float) -> None:
             for cap in caps:
                 beside = abs(ln.y0 - cap.y0) < 2.5 and 0 <= ln.x0 - cap.x1 < 20
                 overlap = min(ln.x1, cap.x1) - max(ln.x0, cap.x0)
-                below = 0 <= ln.y0 - cap.y1 < cap.height * 0.8 and overlap > 0.5 * min(ln.width, cap.width) \
+                # line boxes of tightly set captions overlap by a point or so; only
+                # trust that for text smaller than the body (not a column of prose)
+                tight = -cap.height * 0.3 if abs(ln.size - body) > 0.5 else 0
+                below = tight <= ln.y0 - cap.y1 < cap.height * 0.8 \
+                    and overlap > 0.5 * min(ln.width, cap.width) \
                     and abs(ln.size - cap.size) <= 1.5
                 if beside or below:
                     ln.kind = Kind.CAPTION
@@ -312,6 +317,9 @@ def mark_headings(doc: Document, body: float) -> None:
         elif (words <= 18 and ln.bold and ln.size >= body - 0.5 and not ln.text.endswith((".", ",", ";"))
               and all(sp.bold for sp in ln.spans if sp.text.strip())):  # not a run-in heading
             ln.kind = Kind.HEADING
+        elif (words <= 14 and _SUBSECTION_NUMBER.match(ln.text) and abs(ln.size - body) <= 0.5
+              and not _TERMINAL.search(ln.text) and all(sp.italic for sp in ln.spans if sp.text.strip())):
+            ln.kind = Kind.HEADING  # "2.1. Participants" in italics (Elsevier, Frontiers)
 
 
 # --------------------------------------------------------------------------- reading order

@@ -32,6 +32,8 @@ GENERIC_SKIP_SECTIONS = (
     r"cited literature",
     r"acknowledge?ments?",
     r"funding( information| sources| statement)?",
+    r"grants?( support)?",
+    r"uncited references?",  # Elsevier author proofs
     r"financial (support|disclosure)",
     r"author(s'?|'s)? contributions?",
     r"contributions",
@@ -51,7 +53,6 @@ GENERIC_SKIP_SECTIONS = (
     r"keywords?",
     r"author information",
     r"correspondence",
-    r"grants",
     r"disclosures",
     r"endnotes?",
     r"citation diversity statement",

@@ -110,6 +110,7 @@ def test_speech_exponents(raw, expected):
     ("THEORIES OF CONSCIOUSNESS: Global neuronal workspace theory",
      "Theories of consciousness: Global neuronal workspace theory"),
     ("Method 6: DGCCA", "Method 6: DGCCA"),  # an acronym in a mixed title stays
+    ("PCA", "PCA"),
     ("2. Methods: 2.1 Participants", "Methods: Participants"),
 ])
 def test_section_titles_spoken(raw, spoken):
