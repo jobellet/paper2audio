@@ -78,6 +78,8 @@ paper2audio paper.pdf -e api -v af_heart
 
 ### Google Colab (free GPU)
 
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jobellet/paper2audio/blob/main/notebooks/paper2audio_colab.ipynb)
+
 [`notebooks/paper2audio_colab.ipynb`](notebooks/paper2audio_colab.ipynb) installs
 paper2audio on Colab, asks you to upload a PDF and returns an MP3 read by
 Kokoro-82M on the GPU (about 1–2 minutes per paper on a T4). Open it from GitHub in
