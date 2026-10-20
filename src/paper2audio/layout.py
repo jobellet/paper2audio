@@ -244,16 +244,35 @@ def mark_figure_text(doc: Document, body: float) -> None:
                     ln.kind = Kind.OTHER
 
 
-_MATH_WORDS = {"log", "exp", "sin", "cos", "tan", "tanh", "max", "min", "argmax", "argmin", "softmax", "sign", "diag"}
+_MATH_WORDS = {"log", "exp", "sin", "cos", "tan", "tanh", "max", "min", "argmax", "argmin", "softmax", "sign", "diag",
+               "arg", "lim", "sup", "inf", "det", "var", "cov", "mod", "deg"}
+_PROSE_SHORT = {"to", "of", "in", "is", "as", "at", "by", "or", "an", "on", "if", "be", "we", "it", "no", "so", "up"}
+_UNMAPPED = re.compile(r"[\x00-\x08\x0b-\x1f\ue000-\uf8ff]")  # symbol-font glyphs without Unicode (θ, φ, ...)
 _MATH_TOKEN = re.compile(r"^(?:[^\W\d_]{1,2}|[^\w\s]+|[^\W\d_][^\w\s]+)$")  # "x", "φ", "+", "f′"
+
+
+def _continues_prose(prev: Line, ln: Line) -> bool:
+    """`ln` closes a bracket that the prose line `prev` opened, or continues a
+    range ("227–" + "260"). Not after a comma: "as follows," precedes equations."""
+    if len(prev.text.split()) < 4 or ln.y0 - prev.y1 > prev.height or ln.y0 < prev.y0:
+        return False
+    opened = prev.text.count("(") - prev.text.count(")")
+    closes = opened > 0 and ln.text.count(")") > ln.text.count("(") and (
+        re.search(r"\)[.,;:]?$", ln.text.strip()) is not None  # "max = 4).", "2010)."
+        or any(w.lower() not in _MATH_WORDS for w in re.findall(r"[A-Za-z]{4,}", ln.text)))
+    return closes or prev.text.rstrip().endswith("–")
 
 
 def mark_math(doc: Document) -> None:
     """Equation fragments ("x y φ", ") + log", "f x f y τ"): mostly 1-2 letter
     tokens; and code listings (monospace font)."""
+    prev: Line | None = None
     for ln in doc.lines:
+        before, prev = prev, (ln if ln.kind == Kind.BODY else prev)
         if ln.kind != Kind.BODY:
             continue
+        if before is not None and before.page == ln.page and _continues_prose(before, ln):
+            continue  # "(min = 1," + "max = 4).", "227–" + "260": the end of a prose line
         chars = [len(sp.text.strip()) for sp in ln.spans]
         if sum(c for c, sp in zip(chars, ln.spans) if sp.monospace) > 0.6 * sum(chars):
             ln.kind = Kind.OTHER
@@ -262,8 +281,20 @@ def mark_math(doc: Document) -> None:
         if len(words) >= 3 and sum(bool(_CODEISH.search(w)) for w in words) / len(words) > 0.4:
             ln.kind = Kind.OTHER  # code listing in an ordinary font
             continue
-        tokens = [t for t in ln.text.split() if not re.fullmatch(r"[-−–+×^\d.,;:()%]+", t)]  # numbers are neutral
-        mathy = sum(1 for t in tokens if _MATH_TOKEN.match(t))
+        bare = _UNMAPPED.sub("", ln.text).strip()
+        if bare and re.fullmatch(r"[\d\s.+−\-=×/()]{1,20}", bare) and (" " in bare or re.fullmatch(r"\d{1,3}", bare)):
+            ln.kind = Kind.OTHER  # "2 1 1": indices and exponents of a display equation
+            continue
+        # unmapped symbol glyphs (θ, φ, but also °) are dropped first, so that "360°)."
+        # stays a number; numbers are neutral; "to", "of" are words, not variables;
+        # a glyph standing alone ("Yk θ p(k") is math, one attached to a number is not
+        symbols = sum(1 for t in ln.text.split() if _UNMAPPED.search(t) and not _UNMAPPED.sub("", t).strip("(),.;:"))
+        text = _UNMAPPED.sub("", ln.text)
+        tokens = [t for t in text.split() if not re.fullmatch(r"[-−–+×^\d.,;:()%]+", t)]
+        mathy = symbols + sum(1 for t in tokens if (_MATH_TOKEN.match(t.rstrip(",.;:") or t)
+                                                    and t.lower().strip(",.;:()") not in _PROSE_SHORT)
+                              or t.lower().strip(",.;:()") in _MATH_WORDS)
+        tokens += ["θ"] * symbols
         real_words = [w for w in re.findall(r"[A-Za-z]{4,}", ln.text) if w.lower() not in _MATH_WORDS]
         numbered_equation = re.search(r"\(\d{1,2}[a-z]?\)\s*$", ln.text) and len(real_words) <= 2
         if numbered_equation or (tokens and not real_words and len(tokens) <= 12 and mathy / len(tokens) > 0.6):
@@ -492,10 +523,23 @@ def _join(a: str, b: str, vocab: set[str] = frozenset()) -> str:
 
 def is_caption_start(ln: Line, prev: Line | None, body: float) -> bool:
     """"Fig. 2 | ..." starting a caption, not "...shown in" / "Supplementary Fig. 12c." mid-paragraph."""
-    if not _CAPTION.match(ln.text):
+    m = _CAPTION.match(ln.text)
+    if not m:
+        return False
+    # a sentence that starts with a figure reference, also in Methods set smaller
+    # than the body (APS) and in bold (eLife): "Fig. 1D) and at ...", "Figure 3
+    # illustrates the ...", or a line that continues the sentence of the line above
+    rest = ln.text[m.end():].lstrip()
+    if rest[:1] in (")", ",", ";") or (not re.search(r"[.:|]$", m.group(0)) and rest[:1].islower()):
         return False
     first = next((sp for sp in ln.spans if sp.text.strip()), None)
-    if (first is not None and first.bold) or abs(ln.size - body) > 0.3:
+    if first is not None and first.bold:
+        return True
+    continued = (prev is not None and abs(prev.size - ln.size) < 0.3 and not _TERMINAL.search(prev.text)
+                 and 0 <= ln.y0 - prev.y1 < prev.height * 0.6)
+    if continued:
+        return False
+    if abs(ln.size - body) > 0.3:
         return True
     return prev is None or (_TERMINAL.search(prev.text) is not None and ln.y0 - prev.y1 > prev.height * 0.3)
 

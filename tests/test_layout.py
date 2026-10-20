@@ -220,3 +220,53 @@ def test_bold_abstract_is_not_headings():
     assert [ln.kind for ln in abstract] == [Kind.BODY] * 3, [ln.kind for ln in abstract]
     assert [ln.kind for ln in keywords] == [Kind.OTHER, Kind.OTHER]
     assert intro.kind == Kind.HEADING
+
+
+def test_equation_fragments_with_unmapped_glyphs():
+    """Symbol-font glyphs without Unicode (θ, φ, °) arrive as control characters:
+    standalone they mark math, attached to a number they do not."""
+    from paper2audio.layout import mark_math
+    from paper2audio.models import Document, Kind, Line, Page, Span
+
+    def line(text, y):
+        return Line(text, 300, y, 544, y + 8.5, 8.5, False, 0, spans=[Span(text, 300, 544, 8.5)])
+
+    eq = [line("\x05ˆ j, \x06ˆ j", 632), line("arg max", 634), line("u arg min", 693), line("2 1 1", 700),
+          line("ri, jr\x02i, j\x05\x05, \x06\x06 \x04", 710)]
+    prose = [line("and a represents direction of the observed stimulus (ranged from 1", 720),
+             line("to 360\x01).", 731),
+             line("on average, participants were sampled four times per session (min = 1,", 745),
+             line("max = 4).", 756)]
+    mark_math(Document("x.pdf", [Page(0, 612, 792, lines=[*eq, *prose])]))
+    assert [ln.kind for ln in eq] == [Kind.OTHER] * len(eq)
+    assert [ln.kind for ln in prose] == [Kind.BODY] * len(prose)
+
+
+def test_figure_reference_mid_sentence_is_not_a_caption():
+    """A Methods line (smaller than the body) that starts with 'Fig. 1D) and ...' because
+    the sentence wrapped there continues the paragraph; 'Fig. 2.' in a new block is a caption."""
+    from paper2audio.layout import is_caption_start
+    from paper2audio.models import Line, Span
+
+    def line(text, y):
+        return Line(text, 44, y, 296, y + 9, 9.0, False, 0, spans=[Span(text, 44, 296, 9.0)])
+
+    prev = line("the receptive field of each neuron (red outline in", 111)
+    assert not is_caption_start(line("Fig. 1D) and at the location diametrically opposite", 121), prev, 10.0)
+    assert not is_caption_start(line("Fig. 2, B and C, shows the population average of the", 121), line("of 0.7.", 100), 10.0)
+    assert is_caption_start(line("Fig. 2. Magnetic resonance images of recording sites", 140), line("of 0.7.", 100), 10.0)
+
+
+def test_sentence_starting_with_figure_is_not_a_caption():
+    from paper2audio.layout import is_caption_start
+    from paper2audio.models import Line, Span
+
+    def line(text, y):
+        return Line(text, 44, y, 296, y + 8.5, 8.5, False, 0, spans=[Span(text, 44, 296, 8.5)])
+
+    prev = line("(Tab. A3 – A5). Descriptive statistics are reported in Table 1 .", 415)
+    assert not is_caption_start(line("Figure 3 illustrates the group-averaged mean RT and accuracy for each", 440), prev, 8.5)
+    bold = line("Figure 3 illustrates the group-averaged mean RT", 440)
+    bold.spans = [Span("Figure 3", 44, 80, 8.5, bold=True), Span(" illustrates the group-averaged mean RT", 80, 296, 8.5)]
+    assert not is_caption_start(bold, prev, 8.5)  # eLife sets figure references in bold
+    assert is_caption_start(line("Figure 3. Group-averaged mean RT and accuracy for each condition", 440), prev, 8.5)
