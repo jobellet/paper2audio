@@ -135,3 +135,35 @@ def test_italic_numbered_subheading_wraps():
     page = Page(0, 595, 794, lines=[head, cont, prose, item])
     mark_headings(Document("x.pdf", [page]), body=8.0)
     assert [ln.kind for ln in page.lines] == [Kind.HEADING, Kind.HEADING, Kind.BODY, Kind.BODY]
+
+
+def test_line_box_at_least_font_size():
+    """PyMuPDF 2.0 reports 6 pt glyph boxes for some 8.5 pt fonts; line boxes
+    are extended to the font size so that gap tests agree across versions."""
+    from paper2audio.extract import _make_line
+    from paper2audio.models import Span
+
+    tight = _make_line([Span("FBA Modulates", 311, 400, 8.5, bold=True)], 222.3, 228.3, 0)
+    roomy = _make_line([Span("FBA Modulates", 311, 400, 8.5, bold=True)], 219.0, 228.3, 0)
+    assert (tight.y0, tight.y1) == (228.3 - 8.5, 228.3)
+    assert roomy.y0 == 219.0
+
+
+def test_split_line_regrouped_by_baseline():
+    """One printed line that PyMuPDF splits at citation superscripts is one line again;
+    math fragments on the same baseline stay apart."""
+    from paper2audio.extract import _visual_lines
+    from paper2audio.models import Page
+
+    def piece(text, x0, x1, y0, sup=None):
+        spans = [{"text": text, "bbox": (x0, y0, x1, 285), "origin": (x0, 283), "size": 8.5, "flags": 0, "font": "AdvPSA183"}]
+        if sup:
+            spans.append({"text": sup, "bbox": (x1, 275, x1 + 6, 280), "origin": (x1, 279), "size": 5.0, "flags": 1, "font": "AdvPSA183"})
+        return {"dir": (1, 0), "bbox": (x0, y0, x1 + (6 if sup else 0), 285), "spans": spans}
+
+    block = {"lines": [piece("motion", 60, 86, 277), piece("(Figure", 93, 118, 277), piece("2B),", 126, 142, 275, "95"),
+                       piece("movement", 155, 195, 277), piece("trajectories,", 202, 246, 275, "96"),
+                       piece("or", 260, 267, 277), piece("causal", 275, 299, 277), piece("ψ =", 320, 335, 277)]}
+    rows = _visual_lines(block, Page(0, 600, 800))
+    texts = [" ".join(sp.text for sp in spans if not sp.superscript) for spans, _, _ in rows]
+    assert texts == ["motion (Figure 2B), movement trajectories, or causal", "ψ ="]

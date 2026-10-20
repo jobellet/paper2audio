@@ -14,6 +14,7 @@ _SUP_MARKER = re.compile(r"^[\s\d,;–\-−‒*†‡§¶#a-z]{1,20}$")
 # A horizontal gap this many times the font size splits a line in two
 # (PyMuPDF occasionally glues text across a narrow column gutter).
 _SPLIT_GAP = 2.0
+_SHORT_WORDS = {"a", "an", "as", "at", "be", "by", "if", "in", "is", "it", "no", "of", "on", "or", "so", "to", "we"}
 _MONO_FONTS = ("courier", "mono", "consola", "menlo", "inconsolata", "sourcecodepro", "cmtt", "lucidaconsole")
 
 
@@ -92,7 +93,9 @@ def _make_line(spans: list[Span], y0: float, y1: float, page_no: int) -> Line | 
     return Line(
         text=text,
         x0=min(s.x0 for s in spans),
-        y0=y0,
+        # PyMuPDF 2.0 reports tight glyph boxes for some fonts (6 pt high for 8.5 pt
+        # type); at least the font size keeps every gap test version-independent
+        y0=min(y0, y1 - size),
         x1=max(s.x1 for s in spans),
         y1=y1,
         size=size,
@@ -135,6 +138,57 @@ def figure_regions(fpage) -> list[tuple[float, float, float, float]]:
             and (r[2] - r[0]) * (r[3] - r[1]) < 0.85 * page_area]
 
 
+def _baseline(raw_spans: list[dict]) -> float:
+    ys = sorted(s["origin"][1] for s in raw_spans if not s.get("flags", 0) & 1 and "origin" in s)
+    return ys[len(ys) // 2] if ys else raw_spans[0]["bbox"][3]
+
+
+def _visual_lines(block: dict, page: Page) -> list[tuple[list[Span], float, float]]:
+    """PyMuPDF lines of a block regrouped by baseline.
+
+    PyMuPDF sometimes splits one printed line into several when citation
+    superscripts raise part of it ("motion (Figure 2B),95 movement
+    trajectories,96 ..."); sorted by y0, the pieces would come out shuffled.
+    Adjacent pieces on the same baseline are one line again, if both are words
+    or citations: math fragments stay apart, so that they are still dropped.
+    """
+    def wordy(spans: list[Span]) -> bool:
+        text = "".join(sp.text for sp in spans).strip()
+        return (any(sp.superscript for sp in spans) or re.search(r"[A-Za-z]{3,}", text) is not None
+                or text in _SHORT_WORDS)
+
+    def adjacent(spans: list[Span], others: list[Span]) -> bool:
+        gap = min(min(abs(sp.x0 - o.x1), abs(o.x0 - sp.x1)) for sp in spans for o in others)
+        return gap < _SPLIT_GAP * max(sp.size for sp in spans)
+
+    rows: list[list] = []  # [baseline, spans, y0, y1]
+    for ln in block["lines"]:
+        dx, dy = ln.get("dir", (1, 0))
+        if abs(dy) > 0.1:
+            # rotated text: margin stamps, arXiv ids, journal banners
+            page.rotated.append("".join(s["text"] for s in ln["spans"]))
+            continue
+        raw = [s for s in ln["spans"] if s["text"].strip()]
+        if not raw:
+            continue
+        spans = [_make_span(s) for s in raw]
+        base = _baseline(raw)
+        _, y0, _, y1 = ln["bbox"]
+        for row in rows:
+            if (abs(row[0] - base) < 1.5 and wordy(spans) and wordy(row[1]) and adjacent(spans, row[1])
+                    and all(sp.x1 <= o.x0 or sp.x0 >= o.x1 for sp in spans for o in row[1])):
+                row[1] += spans
+                row[2], row[3] = min(row[2], y0), max(row[3], y1)
+                break
+        else:
+            rows.append([base, spans, y0, y1])
+    out = []
+    for _, spans, y0, y1 in rows:
+        spans.sort(key=lambda sp: sp.x0)
+        out.append((spans, y0, y1))
+    return out
+
+
 def extract(path: str) -> Document:
     pdf = fitz.open(path)
     pages: list[Page] = []
@@ -145,17 +199,7 @@ def extract(path: str) -> Document:
         for block in data["blocks"]:
             if block.get("type", 0) != 0:
                 continue  # image block
-            for ln in block["lines"]:
-                dx, dy = ln.get("dir", (1, 0))
-                if abs(dy) > 0.1:
-                    # rotated text: margin stamps, arXiv ids, journal banners
-                    page.rotated.append("".join(s["text"] for s in ln["spans"]))
-                    continue
-                spans = [_make_span(s) for s in ln["spans"] if s["text"].strip()]
-                if not spans:
-                    continue
-                spans.sort(key=lambda s: s.x0)
-                _, y0, _, y1 = ln["bbox"]
+            for spans, y0, y1 in _visual_lines(block, page):
                 for grp in _group(spans):
                     line = _make_line(grp, y0, y1, pno)
                     if line:
