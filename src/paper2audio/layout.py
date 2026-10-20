@@ -335,6 +335,7 @@ def mark_headings(doc: Document, body: float) -> None:
               and not _TERMINAL.search(ln.text) and _all_italic(ln)):
             ln.kind = Kind.HEADING  # "2.1. Participants" in italics (Elsevier, Frontiers)
             italic_headings.add(id(ln))
+    _demote_bold_paragraphs(doc)
     # second line of a wrapped italic heading: italic, aligned, directly below
     for page in doc.pages:
         for prev, ln in zip(page.lines, page.lines[1:]):
@@ -343,6 +344,48 @@ def mark_headings(doc: Document, body: float) -> None:
                     and abs(ln.size - prev.size) < 0.3 and len(ln.text.split()) <= 14):
                 ln.kind = Kind.HEADING
                 italic_headings.add(id(ln))
+
+
+_KEYWORDS = re.compile(r"^key ?words?\s*[:.—–]", re.I)
+
+
+def _demote_bold_paragraphs(doc: Document) -> None:
+    """A stack of three or more bold lines in one size is a paragraph (the bold
+    abstract of J Neurosci), not a series of headings; "Key words: ..." is not
+    read at all."""
+    for page in doc.pages:
+        bold = [ln for ln in page.lines if ln.bold and ln.kind in (Kind.BODY, Kind.HEADING)]
+        above: dict[int, Line] = {}
+        for ln in bold:
+            cands = [o for o in bold if o is not ln and abs(o.size - ln.size) < 0.3 and o.y1 <= ln.y0 + 1
+                     and ln.y0 - o.y1 < 0.6 * ln.height and min(o.x1, ln.x1) - max(o.x0, ln.x0) > 0.5 * min(o.width, ln.width)]
+            if cands:
+                above[id(ln)] = max(cands, key=lambda o: o.y1)
+        below = {id(o): ln for ln in bold if (o := above.get(id(ln))) is not None}
+        seen: set[int] = set()
+        for ln in bold:
+            if id(ln) in seen or id(ln) in above:
+                continue
+            stack = [ln]  # walk down from the top of a stack
+            while id(stack[-1]) in below:
+                stack.append(below[id(stack[-1])])
+            seen.update(id(x) for x in stack)
+            if len(stack) >= 3:
+                for x in stack:
+                    if x.kind == Kind.HEADING and not (_SECTION_NAME.match(x.text) or _NUMBERED_HEADING.match(x.text)):
+                        x.kind = Kind.BODY
+        keywords = [ln for ln in page.lines if ln.kind in (Kind.HEADING, Kind.BODY) and _KEYWORDS.match(ln.text)]
+        for kw in keywords:  # never read, and never glued to the prose that follows
+            kw.kind = Kind.OTHER
+            last = kw
+            while True:  # the list may wrap: "...; working memory; delay activity"
+                nxt = next((ln for ln in page.lines if ln.kind in (Kind.HEADING, Kind.BODY)
+                            and 0 <= ln.y0 - last.y1 < last.height and abs(ln.x0 - kw.x0) < 2
+                            and len(ln.text.split()) <= 15 and not re.search(r"[.!?]$", ln.text)), None)
+                if nxt is None:
+                    break
+                nxt.kind = Kind.OTHER
+                last = nxt
 
 
 def _all_italic(ln: Line) -> bool:

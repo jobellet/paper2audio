@@ -18,7 +18,7 @@ class Generic(JournalProfile):
         r"(\*\s*)?correspond(ing author|ence)( to| should be addressed to)?\b",
         r"(received|accepted|published|revised)( online)?:?\s+\d",
         r"(received|accepted|published)( online)? \w+ \d{1,2},? \d{4}",
-        r"keywords?\s*[:.—–]",
+        r"key ?words?\s*[:.—–]",
         r"e-?mail( address)?:",
         r"declaration of (generative )?ai\b",
     )

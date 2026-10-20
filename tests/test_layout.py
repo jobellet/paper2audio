@@ -167,3 +167,52 @@ def test_split_line_regrouped_by_baseline():
     rows = _visual_lines(block, Page(0, 600, 800))
     texts = [" ".join(sp.text for sp in spans if not sp.superscript) for spans, _, _ in rows]
     assert texts == ["motion (Figure 2B), movement trajectories, or causal", "ψ ="]
+
+
+def _chars(text, x0=42.0, size=10.0, letter_gap=-0.2, word_gap=1.4, width=4.5):
+    out, x = [], x0
+    for i, ch in enumerate(text):
+        if ch == "_":  # a word boundary without a space character
+            x += word_gap - letter_gap
+            continue
+        out.append({"c": ch, "bbox": (x, 0, x + width, size)})
+        x += width + letter_gap
+    return {"chars": out, "size": size, "font": "MinionMM-SemiBoldCondens"}
+
+
+def test_missing_spaces_restored():
+    """J Neurosci PDFs position words without space characters; normal text and
+    odd glyph boxes inside words are left alone."""
+    from paper2audio.extract import _respace
+
+    assert _respace(_chars("one_item_was_given_as_a_cue,_and")) == "one item was given as a cue, and"
+    # justified line with narrower word gaps (0.117 em above the letter gap)
+    assert _respace(_chars("of_decoding_noisy_neural", word_gap=0.97)) == "of decoding noisy neural"
+    # a single word whose glyph boxes leave a 0.08 em gap: "ep ilepsy" must not happen
+    assert _respace(_chars("ep_ilepsy", size=8.5, letter_gap=0.0, word_gap=0.6)) == "epilepsy"
+    # no split before an apostrophe or after an accent
+    assert _respace(_chars("observer_’s_choice_was_made", word_gap=1.4)) == "observer’s choice was made"
+
+
+def test_bold_abstract_is_not_headings():
+    """A bold abstract (J Neurosci) has short, unpunctuated lines that look like bold
+    headings; three or more stacked bold lines are a paragraph. Key words are not read."""
+    from paper2audio.layout import mark_headings
+    from paper2audio.models import Document, Kind, Line, Page, Span
+
+    def line(text, y, size=10.0, bold=True, x0=42, x1=544):
+        return Line(text, x0, y, x1, y + size, size, bold, 0, spans=[Span(text, x0, x1, size, bold=bold)])
+
+    abstract = [line("The responses of neurons within posterior visual cortex are enhanced when", 249),
+                line("neurons at retinotopically corresponding sites within the macaque monkey", 261),
+                line("tion, presaccadic enhancement of V4 activity was increased and FEF", 273)]
+    keywords = [line("Key words: extrastriate cortex; eye movements; motor command; prefrontal", 291),
+                line("cortex; top-down control; visual attention", 303)]
+    intro = line("Introduction", 330, size=12.0, x1=103)
+    body = line("We shift our gaze to an object of interest many times each day.", 345, size=9.5, bold=False)
+    title = line("A Distinct Contribution of the Frontal Eye Field", 115, size=22.0, x1=539)
+    page = Page(0, 612, 792, lines=[title, *abstract, *keywords, intro, body])
+    mark_headings(Document("x.pdf", [page]), body=9.5)
+    assert [ln.kind for ln in abstract] == [Kind.BODY] * 3, [ln.kind for ln in abstract]
+    assert [ln.kind for ln in keywords] == [Kind.OTHER, Kind.OTHER]
+    assert intro.kind == Kind.HEADING

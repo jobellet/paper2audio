@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections import Counter
 
 import pymupdf as fitz
@@ -62,7 +63,9 @@ def _spans_text(spans: list[Span]) -> str:
         if out and sp.x0 - spans[i - 1].x1 > sp.size * 0.15 and not out[-1].endswith(" ") and not t.startswith(" "):
             t = " " + t
         out.append(t)
-    return re.sub(r"\s+", " ", "".join(out)).strip()
+    text = re.sub(r"\s+", " ", "".join(out)).strip()
+    # a missing space after a full stop: "processing.In that respect" (J Neurosci, Cell Press)
+    return re.sub(r"(?<=[a-z]{2}[.;:?!])(?=[A-Z][a-z]{2})", " ", text)
 
 
 def _group(spans: list[Span]) -> list[list[Span]]:
@@ -138,6 +141,35 @@ def figure_regions(fpage) -> list[tuple[float, float, float, float]]:
             and (r[2] - r[0]) * (r[3] - r[1]) < 0.85 * page_area]
 
 
+def _respace(span: dict) -> str:
+    """Span text, with word spaces restored where the PDF has none.
+
+    Some PDFs (J Neurosci 2006-2018) position every word but store no space
+    characters: "oneitemwasgivenasacue,and". Letters of a word sit about
+    -0.2 pt apart, words about 0.14 em: a gap well above the typical one is a space.
+    """
+    chars = span.get("chars", [])
+    text = "".join(c["c"] for c in chars) if chars else span.get("text", "")
+    pairs = [(c, n) for c, n in zip(chars, chars[1:]) if c["c"] != " " and n["c"] != " "]
+    if len(pairs) < 8 or re.match(r"(cmmi|cmsy|cmex|msbm|msam)\d|.*math", span.get("font", "").lower()):
+        return text
+    gaps = sorted(n["bbox"][0] - c["bbox"][2] for c, n in pairs)
+    # typical letter gap + a margin. Missing spaces measure 0.12-0.15 em above
+    # the letter gap; odd glyph boxes in normal text ("ep ilepsy", "ref lected",
+    # italic overhangs) up to 0.085 em. A long span without any space is glued
+    # text for sure, and gets the lower margin.
+    glued = " " not in text and len(chars) >= 15
+    limit = gaps[len(gaps) // 2] + (0.09 if glued else 0.12) * span["size"]
+    out = [chars[0]["c"]]
+    for c, n in zip(chars, chars[1:]):
+        if (c["c"] != " " and n["c"] != " " and n["bbox"][0] - c["bbox"][2] > limit
+                and not unicodedata.combining(n["c"]) and not unicodedata.combining(c["c"])
+                and n["c"] not in "’'”),.;:!?–-"):
+            out.append(" ")
+        out.append(n["c"])
+    return "".join(out)
+
+
 def _baseline(raw_spans: list[dict]) -> float:
     ys = sorted(s["origin"][1] for s in raw_spans if not s.get("flags", 0) & 1 and "origin" in s)
     return ys[len(ys) // 2] if ys else raw_spans[0]["bbox"][3]
@@ -195,8 +227,11 @@ def extract(path: str) -> Document:
     for pno, fpage in enumerate(pdf):
         rect = fpage.rect
         page = Page(number=pno, width=rect.width, height=rect.height, figures=figure_regions(fpage))
-        data = fpage.get_text("dict")
+        data = fpage.get_text("rawdict")  # "dict" plus character boxes, for _respace
         for block in data["blocks"]:
+            for ln in block.get("lines", []):
+                for sp in ln["spans"]:
+                    sp["text"] = _respace(sp)
             if block.get("type", 0) != 0:
                 continue  # image block
             for spans, y0, y1 in _visual_lines(block, page):
