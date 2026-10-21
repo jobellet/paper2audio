@@ -5,15 +5,21 @@ per section**, read in the right order and without the clutter: no citations,
 statistics, figure references, running heads, page numbers or reference list.
 
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/jobellet/paper2audio/blob/main/notebooks/paper2audio_colab.ipynb)
+[![Open in Kaggle](https://kaggle.com/static/images/open-in-kaggle.svg)](https://kaggle.com/kernels/welcome?src=https://github.com/jobellet/paper2audio/blob/main/notebooks/paper2audio_colab.ipynb)
 [![CI](https://github.com/jobellet/paper2audio/actions/workflows/ci.yml/badge.svg)](https://github.com/jobellet/paper2audio/actions/workflows/ci.yml)
 
 ## Quick start
 
 ### Option 1: in your browser, nothing to install
 
-Click **Open in Colab** above, choose **Runtime → Change runtime type → T4 GPU**, then
-**Runtime → Run all** and upload your PDF. About two minutes later you get an MP3
-read by a natural-sounding neural voice (Kokoro-82M), plus the transcript.
+- **Colab:** click **Open in Colab** above, choose **Runtime → Change runtime type →
+  T4 GPU**, then **Runtime → Run all** and upload your PDF.
+- **Kaggle:** click **Open in Kaggle**, set **Settings → Accelerator → GPU T4** and
+  **Internet → on**, add your PDF with **Add Input → Upload** (or paste a link in
+  `PDF_URL`), then **Run All**. The MP3 appears under **Output**.
+
+A 15-page paper takes about two minutes on the free T4 GPU (roughly 15× faster than
+real time), read by a natural-sounding neural voice (Kokoro-82M), with the transcript.
 
 ### Option 2: on your computer
 
