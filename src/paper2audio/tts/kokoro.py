@@ -7,6 +7,7 @@ Voices: am_michael, am_adam, af_heart, af_bella, bm_george, bf_emma, ...
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import urllib.request
@@ -55,9 +56,18 @@ class KokoroTTS(TTSBackend):
             from kokoro_onnx import Kokoro
 
             onnxruntime.disable_telemetry_events()  # onnxruntime phones home by default
+            # "words count mismatch" for most paragraphs: harmless, and floods notebooks
+            logging.getLogger("phonemizer").setLevel(logging.ERROR)
 
             model, voices = _ensure_models(Path(self.options.get("model_dir") or model_dir()))
-            KokoroTTS._engine = Kokoro(str(model), str(voices))
+            if "CUDAExecutionProvider" in onnxruntime.get_available_providers() and hasattr(Kokoro, "from_session"):
+                # onnxruntime's default exhaustive cuDNN search fails on Kokoro's
+                # convolutions with recent cuDNN (9.27 on Colab, Oct 2026); DEFAULT runs
+                session = onnxruntime.InferenceSession(str(model), providers=[
+                    ("CUDAExecutionProvider", {"cudnn_conv_algo_search": "DEFAULT"}), "CPUExecutionProvider"])
+                KokoroTTS._engine = Kokoro.from_session(session, str(voices))
+            else:
+                KokoroTTS._engine = Kokoro(str(model), str(voices))
         return KokoroTTS._engine
 
     def synthesize(self, text: str, out_path: Path) -> Path:

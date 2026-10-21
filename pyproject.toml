@@ -15,7 +15,7 @@ dependencies = [
 [project.optional-dependencies]
 edge = ["edge-tts>=6.1"]          # neural voices, needs internet
 espeak = ["espeakng-loader>=0.2"] # fully offline, pip-only, robotic voice
-kokoro = ["kokoro-onnx>=0.4"]     # offline neural voices, model auto-downloaded (~340 MB)
+kokoro = ["kokoro-onnx>=0.4"]     # offline neural voices, model auto-downloaded (~340 MB); GPU: + onnxruntime-gpu
 piper = ["piper-tts>=1.2"]        # offline neural voices (download a .onnx voice)
 dev = ["pytest>=8", "reportlab>=4", "edge-tts>=6.1", "espeakng-loader>=0.2"]
 
