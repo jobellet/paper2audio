@@ -36,7 +36,7 @@ Then install paper2audio, preferably in its own environment:
 ```bash
 conda create -n paper2audio python=3.12     # or: python -m venv .venv
 conda activate paper2audio
-pip install "paper2audio[edge,espeak] @ git+https://github.com/jobellet/paper2audio"
+pip install "paper2audio[edge,espeak] @ git+https://github.com/jobellet/paper2audio.git"
 ```
 
 And convert a paper:
