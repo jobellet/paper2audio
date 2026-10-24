@@ -265,6 +265,8 @@ def _cmd_init(args) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
     ap = argparse.ArgumentParser(prog="python -m paper2audio.corpus", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--root", type=Path, default=ROOT)
