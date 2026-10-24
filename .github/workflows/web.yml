@@ -1,0 +1,88 @@
+name: Web
+
+on:
+  workflow_dispatch:
+    inputs:
+      pdf:
+        description: "PDF to convert: a direct URL, or a path in this repository (e.g. uploads/paper.pdf)"
+        required: true
+      engine:
+        description: "TTS engine"
+        type: choice
+        default: edge
+        options: [edge, kokoro, espeak, none]
+      voice:
+        description: "Voice name (optional)"
+        default: ""
+      rate:
+        description: "Speaking rate"
+        default: "1.0"
+      captions:
+        description: "Read figure/table captions (true/false)"
+        default: "false"
+      skip:
+        description: "Extra section titles to skip (comma-separated regex)"
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PDF: ${{ inputs.pdf }}
+      ENGINE: ${{ inputs.engine }}
+      VOICE: ${{ inputs.voice }}
+      RATE: ${{ inputs.rate }}
+      CAPTIONS: ${{ inputs.captions }}
+      SKIP: ${{ inputs.skip }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install paper2audio
+        run: pip install ".[edge,espeak]"
+      - name: Install Kokoro
+        if: env.ENGINE == 'kokoro'
+        run: pip install ".[kokoro]"
+      - name: Fetch the PDF
+        run: |
+          if [[ "$PDF" == http* ]]; then
+            curl -L -A "Mozilla/5.0" -o paper.pdf "$PDF"
+          else
+            cp "$PDF" paper.pdf
+          fi
+      - name: Convert
+        run: |
+          args=(--transcript)
+          if [ -n "$VOICE" ]; then args+=(-v "$VOICE"); fi
+          args+=(-r "$RATE")
+          if [ "$CAPTIONS" = "true" ]; then args+=(--captions); fi
+          IFS=',' read -ra skips <<< "$SKIP"
+          for s in "${skips[@]}"; do
+            [ -n "$s" ] && args+=(--skip "$s")
+          done
+          paper2audio paper.pdf -e "$ENGINE" "${args[@]}"
+      - name: Publish to the web release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          n=${{ github.run_number }}
+          mv paper.txt "paper-$n.txt"
+          files=("paper-$n.txt")
+          if [ -f paper.mp3 ]; then mv paper.mp3 "paper-$n.mp3"; files+=("paper-$n.mp3"); fi
+          gh release view web >/dev/null 2>&1 || gh release create web --title "Web output" --notes "MP3s produced by the web page."
+          gh release upload web "${files[@]}" --clobber
+      - name: Remove the uploaded PDF
+        if: startsWith(env.PDF, 'uploads/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha=$(gh api "repos/${{ github.repository }}/contents/$PDF" --jq .sha)
+          gh api -X DELETE "repos/${{ github.repository }}/contents/$PDF" -f message="Remove uploaded PDF" -f sha="$sha"

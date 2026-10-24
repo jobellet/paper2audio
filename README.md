@@ -21,6 +21,14 @@ statistics, figure references, running heads, page numbers or reference list.
 A 15-page paper takes about two minutes on the free T4 GPU (roughly 15× faster than
 real time), read by a natural-sounding neural voice (Kokoro-82M), with the transcript.
 
+- **Web page (self-hosted on GitHub):** after enabling **Settings → Pages → Source:
+  GitHub Actions**, the page at
+  `https://<you>.github.io/paper2audio/` turns a link to a PDF into an MP3 with one
+  click: it pre-fills the *Web* workflow, GitHub Actions runs the full pipeline on a
+  free runner (neural voices included), and the MP3 lands in the public `web` release,
+  playable and downloadable straight from the page. See
+  [docs/index.html](docs/index.html).
+
 ### Option 2: on your computer
 
 You need Python 3.10 or newer and [ffmpeg](https://ffmpeg.org/):
