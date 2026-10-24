@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>paper2audio — listen to scientific papers</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, sans-serif; max-width: 46rem; margin: 2rem auto;
+         padding: 0 1rem; line-height: 1.5; }
+  h1 a { text-decoration: none; }
+  fieldset { border: 1px solid #8884; border-radius: 8px; margin: 1.5rem 0; padding: 1rem; }
+  label { display: block; margin: 0.75rem 0 0.15rem; font-weight: 600; }
+  input[type=text], input[type=url] { width: 100%; box-sizing: border-box; padding: 0.5rem; }
+  small { color: #888; }
+  .runlink { display: inline-block; margin-top: 1rem; padding: 0.6rem 1.2rem; border-radius: 6px;
+             background: #2da44e; color: #fff; font-weight: 700; text-decoration: none; }
+  .runlink:hover { background: #2c974b; }
+  audio { width: 100%; margin: 0.25rem 0 1rem; }
+  .done li { margin: 0.5rem 0; }
+  code { background: #8883; padding: 0 0.3em; border-radius: 4px; }
+  .error { color: #d1242f; }
+</style>
+</head>
+<body>
+<h1><a href="https://github.com/jobellet/paper2audio">paper2audio</a></h1>
+<p>Turn a scientific paper into an MP3 with one chapter per section — no citations,
+statistics, figure references or reference list. This page runs the full pipeline on
+<b>GitHub's servers</b> (GitHub Actions): paste a direct link to a PDF, press the green
+button, and pick up your MP3 (private to you) a few minutes later. Nothing to install.</p>
+
+<fieldset>
+  <legend><b>Convert a paper</b></legend>
+  <label for="repo">Repository</label>
+  <input type="text" id="repo" value="jobellet/paper2audio">
+  <label for="pdf">Direct link to the PDF</label>
+  <input type="url" id="pdf" placeholder="https://arxiv.org/pdf/2401.00001"
+         oninput="update()">
+  <small>Must be a direct link to the PDF file (arXiv, bioRxiv, an open-access
+  publisher page, a public URL…). Papers behind a paywall cannot be fetched.</small>
+  <label for="engine">Voice</label>
+  <select id="engine" onchange="update()">
+    <option value="edge">Natural neural voice (Edge, needs internet)</option>
+    <option value="kokoro">Natural neural voice (Kokoro, offline, slower on CPU)</option>
+    <option value="espeak">Robotic offline voice (fastest)</option>
+    <option value="none">Transcript only (no audio)</option>
+  </select>
+  <label for="rate">Speed <small>(1.0 = normal)</small></label>
+  <input type="text" id="rate" value="1.0" oninput="update()">
+  <label><input type="checkbox" id="captions" onchange="update()"> also read figure/table captions</label>
+  <p><a class="runlink" id="run" href="#">Run the pipeline ▶</a></p>
+  <p id="hint">The button opens GitHub with the form pre-filled: press <b>Run workflow</b>
+  there. You need to be logged in with write access to the repository (self-hosted
+  means <i>your</i> GitHub runs it).</p>
+  <p id="resultlink" hidden>Your audio will appear under
+  <a id="release" href="#">Releases</a> (private draft) in a few minutes.</p>
+</fieldset>
+
+<h2>Your MP3s</h2>
+<p>The audio and the transcript are saved in a <b>private draft release</b> of the repository
+(<a id="releases" href="#">Releases</a>, listed as <i>Paper N</i>; only people with write access see
+them). They are not published: copyrighted papers must not be redistributed. Open the release to
+play or download the MP3.</p>
+<script>
+function update() {
+  const repo = document.getElementById("repo").value.trim().replace(/\.git$/, "");
+  const params = new URLSearchParams();
+  const pdf = document.getElementById("pdf").value.trim();
+  if (pdf) params.set("pdf", pdf);
+  params.set("engine", document.getElementById("engine").value);
+  const rate = document.getElementById("rate").value.trim();
+  if (rate && rate !== "1.0") params.set("rate", rate);
+  if (document.getElementById("captions").checked) params.set("captions", "true");
+  document.getElementById("run").href = "https://github.com/" + repo + "/actions/workflows/web.yml?" + params;
+  const rel = "https://github.com/" + repo + "/releases";
+  document.getElementById("releases").href = rel;
+  document.getElementById("release").href = rel;
+  document.getElementById("resultlink").hidden = !pdf;
+}
+document.getElementById("repo").oninput = update;
+update();
+</script>
+</body>
+</html>
