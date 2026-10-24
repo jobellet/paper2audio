@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       pdf:
-        description: "PDF to convert: a direct URL, or a path in this repository (e.g. uploads/paper.pdf)"
+        description: "PDF to convert: a direct URL (a PDF you may copy; the output is kept private, see the Publish step)"
         required: true
       engine:
         description: "TTS engine"
@@ -54,10 +54,11 @@ jobs:
       - name: Fetch the PDF
         run: |
           if [[ "$PDF" == http* ]]; then
-            curl -L -A "Mozilla/5.0" -o paper.pdf "$PDF"
+            curl -fL -A "Mozilla/5.0" -o paper.pdf "$PDF"
           else
             cp "$PDF" paper.pdf
           fi
+          head -c 5 paper.pdf | grep -q '%PDF' || { echo "::error::the download is not a PDF (login page, paywall or wrong link?)"; exit 1; }
       - name: Convert
         run: |
           args=(--transcript)
@@ -69,7 +70,9 @@ jobs:
             [ -n "$s" ] && args+=(--skip "$s")
           done
           paper2audio paper.pdf -e "$ENGINE" "${args[@]}"
-      - name: Publish to the web release
+      - name: Publish to a private draft release
+        # A DRAFT release is visible only to people with write access to the repository, never to the public:
+        # the MP3 and the transcript of a (possibly copyrighted) paper must not be redistributed publicly.
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -77,12 +80,5 @@ jobs:
           mv paper.txt "paper-$n.txt"
           files=("paper-$n.txt")
           if [ -f paper.mp3 ]; then mv paper.mp3 "paper-$n.mp3"; files+=("paper-$n.mp3"); fi
-          gh release view web >/dev/null 2>&1 || gh release create web --title "Web output" --notes "MP3s produced by the web page."
-          gh release upload web "${files[@]}" --clobber
-      - name: Remove the uploaded PDF
-        if: startsWith(env.PDF, 'uploads/')
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          sha=$(gh api "repos/${{ github.repository }}/contents/$PDF" --jq .sha)
-          gh api -X DELETE "repos/${{ github.repository }}/contents/$PDF" -f message="Remove uploaded PDF" -f sha="$sha"
+          gh release create "web-$n" --draft --title "Paper $n" \
+            --notes "Private output of the Web workflow, run $n. Source: $PDF" "${files[@]}"

@@ -25,8 +25,9 @@ real time), read by a natural-sounding neural voice (Kokoro-82M), with the trans
   GitHub Actions**, the page at
   `https://<you>.github.io/paper2audio/` turns a link to a PDF into an MP3 with one
   click: it pre-fills the *Web* workflow, GitHub Actions runs the full pipeline on a
-  free runner (neural voices included), and the MP3 lands in the public `web` release,
-  playable and downloadable straight from the page. See
+  free runner (neural voices included), and the MP3 and transcript are saved in a
+  **private draft release** (visible only to you; papers may be copyrighted, so nothing is
+  published). See
   [docs/index.html](docs/index.html).
 
 ### Option 2: on your computer

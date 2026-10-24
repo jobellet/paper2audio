@@ -27,7 +27,7 @@
 <p>Turn a scientific paper into an MP3 with one chapter per section — no citations,
 statistics, figure references or reference list. This page runs the full pipeline on
 <b>GitHub's servers</b> (GitHub Actions): paste a direct link to a PDF, press the green
-button, and pick up your MP3 a few minutes later. Nothing to install.</p>
+button, and pick up your MP3 (private to you) a few minutes later. Nothing to install.</p>
 
 <fieldset>
   <legend><b>Convert a paper</b></legend>
@@ -53,13 +53,14 @@ button, and pick up your MP3 a few minutes later. Nothing to install.</p>
   there. You need to be logged in with write access to the repository (self-hosted
   means <i>your</i> GitHub runs it).</p>
   <p id="resultlink" hidden>Your audio will appear under
-  <a id="release" href="#">releases → web</a> in a few minutes — see below.</p>
+  <a id="release" href="#">Releases</a> (private draft) in a few minutes.</p>
 </fieldset>
 
-<h2>Ready MP3s</h2>
-<p id="loading">Loading…</p>
-<ul class="done" id="done"></ul>
-
+<h2>Your MP3s</h2>
+<p>The audio and the transcript are saved in a <b>private draft release</b> of the repository
+(<a id="releases" href="#">Releases</a>, listed as <i>Paper N</i>; only people with write access see
+them). They are not published: copyrighted papers must not be redistributed. Open the release to
+play or download the MP3.</p>
 <script>
 function update() {
   const repo = document.getElementById("repo").value.trim().replace(/\.git$/, "");
@@ -70,64 +71,14 @@ function update() {
   const rate = document.getElementById("rate").value.trim();
   if (rate && rate !== "1.0") params.set("rate", rate);
   if (document.getElementById("captions").checked) params.set("captions", "true");
-  const url = "https://github.com/" + repo + "/actions/workflows/web.yml?" + params;
-  document.getElementById("run").href = url;
-  const rel = "https://github.com/" + repo + "/releases/tag/web";
+  document.getElementById("run").href = "https://github.com/" + repo + "/actions/workflows/web.yml?" + params;
+  const rel = "https://github.com/" + repo + "/releases";
+  document.getElementById("releases").href = rel;
   document.getElementById("release").href = rel;
   document.getElementById("resultlink").hidden = !pdf;
 }
-
-async function listAudio() {
-  const repo = document.getElementById("repo").value.trim().replace(/\.git$/, "");
-  const loading = document.getElementById("loading");
-  const done = document.getElementById("done");
-  try {
-    const res = await fetch("https://api.github.com/repos/" + repo + "/releases/tags/web");
-    if (!res.ok) throw new Error(res.status);
-    const assets = (await res.json()).assets || [];
-    const mp3s = assets.filter(a => a.name.endsWith(".mp3"))
-                       .sort((a, b) => b.created_at.localeCompare(a.created_at));
-    const txts = Object.fromEntries(
-      assets.filter(a => a.name.endsWith(".txt")).map(a => [a.name.replace(".txt", ""), a]));
-    loading.hidden = true;
-    done.innerHTML = "";
-    if (!mp3s.length) { done.innerHTML = "<li>No audio yet — convert a paper above.</li>"; return; }
-    for (const a of mp3s) {
-      const li = document.createElement("li");
-      const b = document.createElement("b");
-      const stem = a.name.replace(".mp3", "");
-      b.textContent = stem;
-      li.appendChild(b);
-      const audio = document.createElement("audio");
-      audio.controls = true;
-      audio.src = a.browser_download_url;
-      li.appendChild(audio);
-      const links = document.createElement("div");
-      const dl = document.createElement("a");
-      dl.href = a.browser_download_url;
-      dl.textContent = "download MP3";
-      links.appendChild(dl);
-      const base = stem.replace(/^paper-\d+/, "paper");
-      const t = txts[a.name.replace(".mp3", "")] || assets.find(x => x.name === base + ".txt");
-      if (t) {
-        links.append(" · ");
-        const tr = document.createElement("a");
-        tr.href = t.browser_download_url;
-        tr.textContent = "transcript";
-        links.appendChild(tr);
-      }
-      li.appendChild(links);
-      done.appendChild(li);
-    }
-  } catch (e) {
-    loading.innerHTML = '<span class="error">Could not load releases from ' + repo +
-      ' — is the repository public?</span>';
-  }
-}
-
-document.getElementById("repo").oninput = () => { update(); listAudio(); };
+document.getElementById("repo").oninput = update;
 update();
-listAudio();
 </script>
 </body>
 </html>
