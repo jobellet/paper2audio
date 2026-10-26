@@ -5,7 +5,11 @@ on:
     inputs:
       pdf:
         description: "PDF to convert: a direct URL (a PDF you may copy; the output is kept private, see the Publish step)"
-        required: true
+        required: false
+      text:
+        description: "Or paste text directly here"
+        required: false
+        type: string
       engine:
         description: "TTS engine"
         type: choice
@@ -33,6 +37,7 @@ jobs:
     timeout-minutes: 45
     env:
       PDF: ${{ inputs.pdf }}
+      TEXT: ${{ inputs.text }}
       ENGINE: ${{ inputs.engine }}
       VOICE: ${{ inputs.voice }}
       RATE: ${{ inputs.rate }}
@@ -51,14 +56,21 @@ jobs:
       - name: Install Kokoro
         if: env.ENGINE == 'kokoro'
         run: pip install ".[kokoro]"
-      - name: Fetch the PDF
+      - name: Fetch the PDF or save text
         run: |
-          if [[ "$PDF" == http* ]]; then
-            curl -fL -A "Mozilla/5.0" -o paper.pdf "$PDF"
+          if [ -n "$PDF" ]; then
+            if [[ "$PDF" == http* ]]; then
+              curl -fL -A "Mozilla/5.0" -o paper.pdf "$PDF"
+            else
+              cp "$PDF" paper.pdf
+            fi
+            head -c 5 paper.pdf | grep -q '%PDF' || { echo "::error::the download is not a PDF (login page, paywall or wrong link?)"; exit 1; }
+          elif [ -n "$TEXT" ]; then
+            echo "$TEXT" > paper.txt
           else
-            cp "$PDF" paper.pdf
+            echo "::error::Either PDF or text must be provided"
+            exit 1
           fi
-          head -c 5 paper.pdf | grep -q '%PDF' || { echo "::error::the download is not a PDF (login page, paywall or wrong link?)"; exit 1; }
       - name: Convert
         run: |
           args=(--transcript)
@@ -69,7 +81,11 @@ jobs:
           for s in "${skips[@]}"; do
             [ -n "$s" ] && args+=(--skip "$s")
           done
-          paper2audio paper.pdf -e "$ENGINE" "${args[@]}"
+          if [ -f paper.pdf ]; then
+            paper2audio paper.pdf -e "$ENGINE" "${args[@]}"
+          else
+            paper2audio paper.txt -e "$ENGINE" "${args[@]}"
+          fi
       - name: Publish to a private draft release
         # A DRAFT release is visible only to people with write access to the repository, never to the public:
         # the MP3 and the transcript of a (possibly copyrighted) paper must not be redistributed publicly.

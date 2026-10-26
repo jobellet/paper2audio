@@ -13,7 +13,7 @@ from .tts import BACKENDS, get_backend
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="paper2audio", description=__doc__)
-    ap.add_argument("pdf", nargs="?", help="scientific paper (PDF)")
+    ap.add_argument("pdf", nargs="?", help="scientific paper (PDF or plain text .txt)")
     ap.add_argument("-o", "--output", help="output .mp3 (default: next to the PDF)")
     ap.add_argument("-p", "--profile", default="auto", help="journal profile (default: auto-detect)")
     ap.add_argument("-e", "--engine", choices=["auto", "none", *BACKENDS],

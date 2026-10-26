@@ -174,18 +174,21 @@ def clean_sections(sections: list[Section], profile: JournalProfile) -> list[Sec
     return out
 
 
-def _resolve(doc: Document, profile, options) -> tuple[JournalProfile, dict[str, float]]:
+def _resolve(doc: Document | None, profile, options) -> tuple[JournalProfile, dict[str, float]]:
     scores: dict[str, float] = {}
     options = dict(options)
     year = options.pop("year", None)
     if profile is None or profile == "auto":
-        prof, _, scores = profiles.detect(doc)
+        if doc is None:
+            prof = profiles.get("generic")
+        else:
+            prof, _, scores = profiles.detect(doc)
     elif isinstance(profile, str):
         prof = profiles.get(profile)
     else:
         prof = profile
     if year is None:
-        year, source = publication_year(doc)
+        year, source = publication_year(doc) if doc else (None, "")
     else:
         source = "given"
     prof.adapt(year)
@@ -193,6 +196,37 @@ def _resolve(doc: Document, profile, options) -> tuple[JournalProfile, dict[str,
     for k, v in options.items():  # explicit options win over era defaults
         setattr(prof, k, v)
     return prof, scores
+
+
+def parse_text(text: str, profile: JournalProfile | None = None) -> Script:
+    """Parse plain text directly without layout analysis."""
+    paras = []
+    blocks = re.split(r'\n\s*\n', text.strip())
+    for block in blocks:
+        block = block.strip()
+        if not block:
+            continue
+
+        is_heading = False
+        if block.startswith('#'):
+            block = re.sub(r'^#+\s*', '', block)
+            is_heading = True
+        elif '\n' not in block and len(block) < 150 and not re.search(r'[.!?:]$', block) and len(block.split()) < 15:
+            is_heading = True
+
+        if is_heading:
+            paras.append(Paragraph(text=block, kind=Kind.HEADING))
+        else:
+            paras.append(Paragraph(text=re.sub(r'\s+', ' ', block), kind=Kind.BODY))
+
+    if profile is None:
+        from .profiles.generic import Generic
+        profile = Generic()
+        profile.adapt(None)
+
+    title, sections, skipped = sectionize(paras, profile, front_matter=False)
+    sections = clean_sections(sections, profile)
+    return Script(title=title, sections=sections, profile="text", skipped=skipped)
 
 
 def debug_layout(pdf_path: str, profile: str | JournalProfile | None = None, **options) -> str:
@@ -211,6 +245,14 @@ def debug_layout(pdf_path: str, profile: str | JournalProfile | None = None, **o
 
 
 def run(pdf_path: str, profile: str | JournalProfile | None = None, **options) -> Script:
+    if pdf_path.endswith(".txt"):
+        from pathlib import Path
+        text = Path(pdf_path).read_text(encoding="utf-8")
+        if profile is None or profile == "auto":
+            profile = "generic"
+        prof, _ = _resolve(None, profile, options)  # type: ignore
+        return parse_text(text, prof)
+
     doc: Document = extract(pdf_path)
     prof, scores = _resolve(doc, profile, options)
     paras = layout.analyse(doc, prof)
