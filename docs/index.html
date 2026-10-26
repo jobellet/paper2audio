@@ -38,6 +38,7 @@ button, and pick up your MP3 (private to you) a few minutes later. Nothing to in
          oninput="update()">
   <small>Must be a direct link to the PDF file (arXiv, bioRxiv, an open-access
   publisher page, a public URL…). Papers behind a paywall cannot be fetched.</small>
+  <small>To paste text instead of using a PDF URL, click <b>Run the pipeline</b> below and paste your text into the "text" field in the GitHub Actions form.</small>
   <label for="engine">Voice</label>
   <select id="engine" onchange="update()">
     <option value="edge">Natural neural voice (Edge, needs internet)</option>
@@ -52,7 +53,7 @@ button, and pick up your MP3 (private to you) a few minutes later. Nothing to in
   <p id="hint">The button opens GitHub with the form pre-filled: press <b>Run workflow</b>
   there. You need to be logged in with write access to the repository (self-hosted
   means <i>your</i> GitHub runs it).</p>
-  <p id="resultlink" hidden>Your audio will appear under
+  <p id="resultlink">Your audio will appear under
   <a id="release" href="#">Releases</a> (private draft) in a few minutes.</p>
 </fieldset>
 
@@ -75,7 +76,6 @@ function update() {
   const rel = "https://github.com/" + repo + "/releases";
   document.getElementById("releases").href = rel;
   document.getElementById("release").href = rel;
-  document.getElementById("resultlink").hidden = !pdf;
 }
 document.getElementById("repo").oninput = update;
 update();
