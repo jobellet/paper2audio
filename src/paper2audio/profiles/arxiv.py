@@ -13,7 +13,8 @@ class ArXiv(Generic):
 
     name = "arxiv"
     description = "arXiv LaTeX preprints (numbered sections, numeric citations)."
-    signatures = (r"\barXiv:\d{4}\.\d{4,5}", r"\barxiv\.org\b")
+    signatures = (r"\barXiv:\d{4}\.\d{4,5}", r"\barxiv\.org\b",
+                  r"Published as a conference paper at (?:ICLR|ICML|NeurIPS)")
     junk_lines = Generic.junk_lines + (
         r"^arXiv:\d{4}\.\d{4,5}",
         r"^Preprint\. Under review\.?$",

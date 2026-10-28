@@ -23,6 +23,7 @@ def doc_with(text: str, metadata=None) -> Document:
     ("Lovelace et al. eLife 2021;10:e12345. DOI: ...", 2021, "citation"),
     ("Published online: xx xx xxxx\nAccepted: 15 September 2026", 2026, "accepted"),
     ("Copyright © 2014 the authors 0270-6474/14/341234-10$15.00/0", 2014, "copyright"),
+    ("CMC lab preprint | Behrad et al. | December 1, 2025 | 1–31", 2025, "dated"),
 ])
 def test_year_clues(text, year, source):
     assert publication_year(doc_with(text)) == (year, source)

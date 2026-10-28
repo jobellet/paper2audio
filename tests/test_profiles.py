@@ -110,3 +110,25 @@ def test_coloured_headings_of_trends_2026():
     assert kinds["Glossary"] == Kind.OTHER                         # a sidebar title is not a heading of the main text
     assert kinds["measures for consciousness studies"] == Kind.BODY  # smaller than the body: not a heading
     assert kinds["The formation of a percept is the result of several factors."] == Kind.BODY
+
+
+def test_elife_run_in_abstract_becomes_a_section():
+    from paper2audio.models import Kind, Paragraph, Section
+    from paper2audio.profiles import get
+    sections = [Section(title="", paragraphs=[Paragraph(text="Abstract Recurrent networks learn.", kind=Kind.BODY, page=0)]),
+                Section(title="Introduction", paragraphs=[Paragraph(text="Many tasks unfold.", kind=Kind.BODY, page=0)])]
+    out = get("elife").postprocess(sections)
+    assert out[0].title == "Abstract" and out[0].paragraphs[0].text == "Recurrent networks learn."
+    assert out[1].title == "Introduction"
+
+
+def test_elife_math_font_glyphs_are_parentheses_and_signs():
+    from paper2audio.extract import _make_span
+    span = {"text": "ð", "bbox": (0, 0, 4, 9), "size": 9.0, "font": "AdvP4C4E74", "flags": 0}
+    assert _make_span(span).text == "("
+    assert _make_span({**span, "text": " ¼"}).text == " ="
+    from paper2audio.extract import _ELIFE_MAPS
+    assert _make_span({**span, "text": "\x00"}).text == "\x00"                  # control codes: eLife PDFs only
+    assert _make_span({**span, "text": "\x00"}, _ELIFE_MAPS).text == "−"
+    assert _make_span({**span, "text": "t", "font": "AdvP697C"}, _ELIFE_MAPS).text == "τ"   # Greek stored at a Latin letter
+    assert _make_span({**span, "text": "ð", "font": "Times"}).text == "ð"      # only those obfuscated symbol fonts

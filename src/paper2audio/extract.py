@@ -19,6 +19,30 @@ _SHORT_WORDS = {"a", "an", "as", "at", "be", "by", "if", "in", "is", "it", "no",
 _MONO_FONTS = ("courier", "mono", "consola", "menlo", "inconsolata", "sourcecodepro", "cmtt", "lucidaconsole")
 
 
+# ligatures split a word at a line end as well: "eﬃ-" + "ciency" must join
+_LIGATURES = str.maketrans({"ﬀ": "ff", "ﬁ": "fi", "ﬂ": "fl", "ﬃ": "ffi", "ﬄ": "ffl", "ﬅ": "st", "ﬆ": "st"})
+
+# Math fonts of the typesetting system behind eLife, J Neurosci and others: parentheses, equals and plus sit at
+# the code of an accented letter. The font names are obfuscated but stable; the codes are not guaranteed to mean
+# the same in every PDF, so only the printable ones are trusted everywhere.
+_COMMON_MATH_FONTS: dict[str, dict[str, str]] = {
+    "AdvP4C4E74": {"ð": "(", "Þ": ")", "¼": "=", "þ": "+", "½": "["},
+}
+# eLife: Greek letters are stored at the code of a Latin letter, and signs at control codes
+_ELIFE_MATH_FONTS: dict[str, dict[str, str]] = {
+    "AdvP4C4E74": {**_COMMON_MATH_FONTS["AdvP4C4E74"], "\x00": "−", "\x01": "·", "\x02": "×", "\x03": "*", "\x06": "±",
+                   "\x14": "≤", "\x15": "≥", "!": "→", "h": "⟨", "i": "⟩", "j": "|", "f": "{", "g": "}",
+                   "\x8a": "", "\x11": ""},
+    "AdvP697C": {"t": "τ", "D": "Δ", "»": "≈"},
+    "AdvP3E2F88": {"h": "η", "d": "δ", "a": "α", "s": "σ", "p": "π"},
+    "AdvP4C4E51": {'"': "ε", ";": ",", "\x18": "ξ"},
+    "AdvPi1": {"q": "∂"},
+    "AdvP4C4E46": {"P": "∑", "X": "∑", "Z": "∫", "ﬃ": ""},   # large operators; "ﬃﬃﬃ" is the stem of a radical sign
+}
+_COMMON_MAPS = {font: str.maketrans(chars) for font, chars in _COMMON_MATH_FONTS.items()}
+_ELIFE_MAPS = {font: str.maketrans(chars) for font, chars in _ELIFE_MATH_FONTS.items()}
+
+
 def _is_bold(span: dict) -> bool:
     font = span.get("font", "").lower()
     if span.get("flags", 0) & 16 or any(w in font for w in ("bold", "black", "heavy", "semibold")):
@@ -30,12 +54,15 @@ def _is_bold(span: dict) -> bool:
     return re.search(r"(hn-(h|hv|b|bd)|hvy|bd(it|i)?|[-_]b(i|it)?)$", font) is not None
 
 
-def _make_span(s: dict) -> Span:
+def _make_span(s: dict, maps: dict | None = None) -> Span:
     x0, _, x1, _ = s["bbox"]
     flags = s.get("flags", 0)
     text = s["text"]
     if text.strip() == "d" and re.search(r"mpi\d", s.get("font", "").lower()):
         text = text.replace("d", "•")  # Mathematical Pi bullet (Cell Press lists)
+    maps = _COMMON_MAPS if maps is None else maps
+    if s.get("font", "") in maps:
+        text = text.translate(maps[s["font"]])  # "x ð t Þ" is x(t); in eLife, "h" in the Greek font is η
     return Span(
         text=text,
         x0=x0,
@@ -46,6 +73,7 @@ def _make_span(s: dict) -> Span:
         superscript=bool(flags & 1),
         monospace=bool(flags & 8) or any(m in s.get("font", "").lower() for m in _MONO_FONTS),
         color=int(s.get("color", 0) or 0),
+        font=s.get("font", ""),
     )
 
 
@@ -61,10 +89,14 @@ def _spans_text(spans: list[Span]) -> str:
             elif sup in ("2", "3") and re.search(r"(?:^|[\s(])(?:[A-Za-z]|[cdkμm]?m|pseudo-R)$", prev):
                 out.append("^" + sup)  # R^2, cm^2, m^3; not a citation after a word
             continue
+        if (t.strip() == ":" and re.fullmatch(r"Adv[A-Z0-9]{5,}", sp.font) and i + 1 < len(spans)
+                and re.search(r"\d$", "".join(out)) and re.match(r"\s?\d", spans[i + 1].text)):
+            out.append(".")  # a decimal point set in eLife's math font: "0:03"
+            continue
         if out and sp.x0 - spans[i - 1].x1 > sp.size * 0.15 and not out[-1].endswith(" ") and not t.startswith(" "):
             t = " " + t
         out.append(t)
-    text = re.sub(r"\s+", " ", "".join(out)).strip()
+    text = re.sub(r"\s+", " ", "".join(out)).strip().translate(_LIGATURES)
     # a missing space after a full stop: "processing.In that respect" (J Neurosci, Cell Press)
     return re.sub(r"(?<=[a-z]{2}[.;:?!])(?=[A-Z][a-z]+\b)", " ", text)
 
@@ -176,7 +208,28 @@ def _baseline(raw_spans: list[dict]) -> float:
     return ys[len(ys) // 2] if ys else raw_spans[0]["bbox"][3]
 
 
-def _visual_lines(block: dict, page: Page) -> list[tuple[list[Span], float, float]]:
+def _unflag_text_after_subscript(spans: list[Span]) -> None:
+    """A PyMuPDF line that starts with a subscript ("ij") flags the rest of it as superscript.
+
+    Real superscripts are smaller than the text they follow; flagged spans as large as the
+    largest span of the line, next to a clearly smaller one, are ordinary text ("... and a
+    winner-take-all rule is applied ...") that would otherwise be dropped as a citation mark.
+    """
+    biggest = max(sp.size for sp in spans)
+    smallest = min((sp.size for sp in spans if not sp.superscript), default=biggest)
+    if biggest - smallest <= 1.5:
+        return
+    unflagged = False
+    for sp in spans:
+        if sp.superscript and sp.size >= biggest - 0.3:
+            sp.superscript = False
+            unflagged = True
+    if unflagged:  # the subscript that opens the line belongs to the equation on the line above
+        while len(spans) > 1 and spans[0].size < biggest - 1.5 and len(spans[0].text.strip()) <= 4:
+            del spans[0]
+
+
+def _visual_lines(block: dict, page: Page, maps: dict | None = None) -> list[tuple[list[Span], float, float]]:
     """PyMuPDF lines of a block regrouped by baseline.
 
     PyMuPDF sometimes splits one printed line into several when citation
@@ -204,7 +257,8 @@ def _visual_lines(block: dict, page: Page) -> list[tuple[list[Span], float, floa
         raw = [s for s in ln["spans"] if s["text"].strip()]
         if not raw:
             continue
-        spans = [_make_span(s) for s in raw]
+        spans = [_make_span(s, maps) for s in raw]
+        _unflag_text_after_subscript(spans)
         base = _baseline(raw)
         _, y0, _, y1 = ln["bbox"]
         for row in rows:
@@ -224,6 +278,7 @@ def _visual_lines(block: dict, page: Page) -> list[tuple[list[Span], float, floa
 
 def extract(path: str) -> Document:
     pdf = fitz.open(path)
+    maps = _ELIFE_MAPS if len(pdf) and "10.7554/eLife" in pdf[0].get_text() else _COMMON_MAPS
     pages: list[Page] = []
     for pno, fpage in enumerate(pdf):
         rect = fpage.rect
@@ -235,7 +290,7 @@ def extract(path: str) -> Document:
                     sp["text"] = _respace(sp)
             if block.get("type", 0) != 0:
                 continue  # image block
-            for spans, y0, y1 in _visual_lines(block, page):
+            for spans, y0, y1 in _visual_lines(block, page, maps):
                 for grp in _group(spans):
                     line = _make_line(grp, y0, y1, pno)
                     if line:

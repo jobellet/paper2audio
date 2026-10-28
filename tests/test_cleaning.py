@@ -130,3 +130,25 @@ def test_section_titles_spoken(raw, spoken):
 
     section = Section(title=raw, paragraphs=[Paragraph(text="Some words to read.", kind=None, page=0)])
     assert clean_sections([section], Generic())[0].title == spoken
+
+
+@pytest.mark.parametrize("raw, expected", [
+    # numeric citations with a label, in brackets (Nature-style preprints)
+    ("Dynamical Similarity Analysis [DSA, 47] is a framework", "Dynamical Similarity Analysis (DSA) is a framework"),
+    ("with traditional criteria [AICc, 70] and", "with traditional criteria (AICc) and"),
+    ("the set-up used before [similar to 47] and", "the set-up used before and"),
+    ("the original DSA [see, 47, for mathematical details] and", "the original DSA (for mathematical details) and"),
+    ("by more principled procedures [e.g., 85]. Using", "by more principled procedures. Using"),
+    ("alternatives [for example, Wasserstein-based similarity, 72, 73].", "alternatives (for example, Wasserstein-based similarity)."),
+    # brackets with no reference number are mathematics, not citations
+    ("the range [10^-6, 10] was searched", "the range [10^-6, 10] was searched"),
+    ("started at [x0, y0, z0] = 1", "started at [x0, y0, z0] = 1"),
+    # a name split at a line end, and a name with an initial (Elsevier)
+    ("selection of the units (Perez- Nieves et al, 2021) and", "selection of the units and"),
+    ("studies (X. Shen et al, 2017), to select", "studies, to select"),
+    # the equation that opens a sentence, and the one that ends it
+    ("τ∗ = ω(β) ⋅ xmed, where xmed is the median", "Where xmed is the median"),
+    ("with σ = 10, ρ = 28, and β =. The true state", "with σ = 10, ρ = 28. The true state"),
+])
+def test_arxiv_style_brackets_and_equations(raw, expected):
+    assert clean(raw) == expected
