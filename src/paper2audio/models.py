@@ -28,6 +28,7 @@ class Span:
     italic: bool = False
     superscript: bool = False
     monospace: bool = False
+    color: int = 0  # sRGB integer of the text colour (0 = black)
 
 
 @dataclass

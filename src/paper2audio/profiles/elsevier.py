@@ -1,8 +1,10 @@
 import re
+from collections import Counter
 
 from . import register
 from .generic import Generic
 from ..cleaning import rule
+from ..layout import _SECTION_NAME
 from ..models import Kind
 
 
@@ -112,9 +114,8 @@ class CellPress(Elsevier):
             return 0.0
         return Elsevier.detect(doc) + 0.05  # beats the publisher-wide profile
 
-    def classify_lines(self, doc, body_size: float) -> None:
+    def _capital_headings(self, doc, body_size: float) -> None:
         """Headings in capitals and the body font, which may wrap onto a second line."""
-        super().classify_lines(doc, body_size)
         for page in doc.pages:
             for ln in sorted(page.lines, key=lambda l: l.y0):
                 if not (ln.kind == Kind.BODY and ln.text.isupper() and abs(ln.size - body_size) < 0.4
@@ -127,6 +128,45 @@ class CellPress(Elsevier):
                     ln.kind = Kind.HEADING  # second line of a wrapped heading
                 elif len(re.findall(r"[^\W\d_]{3,}", ln.text)) >= 2 and gap > 0.8 * ln.height:
                     ln.kind = Kind.HEADING
+
+    def _coloured_headings(self, doc, body_size: float) -> None:
+        """Trends journals since 2026: headings are sentence case in the body size, set in a colour (red).
+
+        The colour is learnt from the lines that are exactly a section name set in colour
+        ("Acknowledgments", "References", ...). Lines wholly in that colour, short and
+        in the main text (not in a narrow right-hand sidebar) are headings. The same colour on the right
+        (sidebar titles "Highlights", "Glossary", "Outstanding questions") is not a heading
+        of the main text: those lines are dropped.
+        """
+        def colour(ln):
+            chars: dict[int, int] = {}
+            for sp in ln.spans:
+                n = len(sp.text.strip())
+                if n:
+                    chars[sp.color] = chars.get(sp.color, 0) + n
+            total = sum(chars.values())
+            top = max(chars, key=chars.get, default=0)
+            return top if total and chars[top] >= 0.9 * total and top not in (0, 0x231F20) else None
+
+        known = Counter(colour(ln) for ln in doc.lines
+                        if _SECTION_NAME.match(ln.text) and colour(ln) is not None)
+        if not known:
+            return
+        head = known.most_common(1)[0][0]
+        for page in doc.pages:
+            for ln in page.lines:
+                if (ln.kind not in (Kind.BODY, Kind.FOOTNOTE, Kind.OTHER) or colour(ln) != head
+                        or ln.size < body_size - 0.5  # the second line of a caption set in the same colour
+                        or len(ln.text.split()) > 14 or re.search(r"[.,;]$", ln.text)
+                        or re.match(r"(Box|Fig(ure)?|Table)\s+[\dIVX]+\b", ln.text)):
+                    continue
+                ln.kind = Kind.HEADING if ln.x0 < 0.6 * page.width else Kind.OTHER
+
+    def classify_lines(self, doc, body_size: float) -> None:
+        """Headings in capitals, or in a colour, in the body font."""
+        super().classify_lines(doc, body_size)
+        self._capital_headings(doc, body_size)
+        self._coloured_headings(doc, body_size)
 
     def postprocess(self, sections):
         for s in sections:

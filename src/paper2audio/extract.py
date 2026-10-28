@@ -45,6 +45,7 @@ def _make_span(s: dict) -> Span:
         italic=bool(flags & 2),
         superscript=bool(flags & 1),
         monospace=bool(flags & 8) or any(m in s.get("font", "").lower() for m in _MONO_FONTS),
+        color=int(s.get("color", 0) or 0),
     )
 
 

@@ -81,3 +81,32 @@ def test_methods_after_references(tmp_path):
     assert [s.title for s in script.sections][-1] == "Methods: Eye tracking"
     for secret in ("REFERENCE-SECRET", "REPORTING-SECRET", "DATA-SECRET"):
         assert secret not in text
+
+
+def _coloured_doc(width=595):
+    """A page of a 2026 Trends layout: headings in red sentence case at body size, a red sidebar title on the right."""
+    from paper2audio.models import Document, Kind, Line, Page, Span
+    RED, BLACK = 0xAB4D4C, 0x231F20
+
+    def line(text, x0, y, color, size=9.0):
+        return Line(text, x0, y, x0 + 6 * len(text), y + size, size, False, 0, spans=[Span(text, x0, x0 + 6 * len(text), size, color=color)])
+    page = Page(number=0, width=width, height=842, lines=[
+        line("Percept formation", 56, 100, RED),
+        line("The formation of a percept is the result of several factors.", 56, 112, BLACK),
+        line("Glossary", 429, 100, RED, 10.0),
+        line("Percept stability", 56, 300, RED),
+        line("measures for consciousness studies", 60, 400, RED, 7.0),   # second line of a caption
+        line("Acknowledgments", 56, 600, RED, 8.0),
+    ])
+    return Document(path="x.pdf", pages=[page])
+
+
+def test_coloured_headings_of_trends_2026():
+    from paper2audio.models import Kind
+    doc = _coloured_doc()
+    profiles.get("cell_press").classify_lines(doc, 9.0)
+    kinds = {ln.text: ln.kind for ln in doc.pages[0].lines}
+    assert kinds["Percept formation"] == Kind.HEADING and kinds["Percept stability"] == Kind.HEADING
+    assert kinds["Glossary"] == Kind.OTHER                         # a sidebar title is not a heading of the main text
+    assert kinds["measures for consciousness studies"] == Kind.BODY  # smaller than the body: not a heading
+    assert kinds["The formation of a percept is the result of several factors."] == Kind.BODY

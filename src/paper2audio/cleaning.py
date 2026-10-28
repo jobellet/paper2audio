@@ -104,6 +104,12 @@ GENERIC_RULES: list[Rule] = [
     rule("arxiv_id", r"\barXiv:\s?\d{4}\.\d{4,5}(?:v\d+)?(?:\s?\[[\w.-]+\])?", flags=re.I),
     # --- citations
     rule("numeric_citation", r"\s?\[\s?\d+(?:\s?[-–,]\s?\d+)*\s?\]"),
+    # what is left of "(for example, [12])", "(but see [94])", "(see [3] for a review)" once the numbers are gone
+    rule("dangling_citation_lead", r"\s?\((?:for (?:example|instance)|e\.g\.|i\.e\.|see(?: also)?|but see|though see|cf\.|reviewed in)[,;:]?\s*\)",
+         flags=re.I),
+    rule("dangling_see_for", r"(?:\s?[;,]\s?|\s?\()(?:see|reviewed in)(?: also)? for (?:an? )?(?:[a-z]+ )?(?:review|overview|summary|details|discussion)s?\)",
+         lambda m: ")" if not m.group(0).lstrip().startswith("(") else "", flags=re.I),
+    rule("glossary_reference", r"\s?\((?:see )?Glossary\)"),
     rule("refs_parenthetical", r"\s?\((?:see |cf\. )?refs?\.\s?\d+(?:\s?(?:[-–,]|and)\s?\d+)*\)", flags=re.I),
     rule("author_year_citation", _CITE_PAREN),
     rule("mixed_citation_parenthetical", r"\s?\(([^()]{0,600})\)", _strip_citation_segments),
