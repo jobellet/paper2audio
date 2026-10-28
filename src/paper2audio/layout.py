@@ -259,7 +259,16 @@ def mark_figure_text(doc: Document, body: float) -> None:
                       and ln.x0 >= fx0 - 3 * pad and ln.x1 <= fx1 + 3 * pad]
             prose = [ln for ln in inside if len(ln.text.split()) >= 9]
             if len(prose) >= 3:
-                continue  # the area overlaps running text (or is a shaded text box): leave it
+                # the area overlaps running text (or is a shaded text box): leave the text. In a box set in
+                # footnote-size type, the panel labels of its figure ("(I)", "Agent") are short, unpunctuated and
+                # set larger than the box text but smaller than the body: drop them.
+                boxed = [ln for ln in prose if ln.kind == Kind.FOOTNOTE]
+                for ln in inside if len(boxed) >= 3 and len(boxed) >= 0.8 * len(prose) else ():
+                    if (ln.kind == Kind.BODY and ln.size < body - 0.5 and len(ln.text.split()) <= 4
+                            and not re.search(r"[.!?:;,]$", ln.text.strip()) and not _CAPTION.match(ln.text)
+                            and _isolated(ln, page)):
+                        ln.kind = Kind.OTHER
+                continue
             for ln in inside:
                 if not _CAPTION.match(ln.text):
                     ln.kind = Kind.OTHER
@@ -567,8 +576,32 @@ def reading_order(page: Page, body: float) -> list[Line]:
 _WORD = re.compile(r"[A-Za-z][A-Za-z-]*[A-Za-z]")
 
 
-def vocabulary(lines: list[Line]) -> set[str]:
-    return {w.lower() for ln in lines for w in _WORD.findall(ln.text)}
+class Vocabulary(set):
+    """The words of the paper (lowercase). `whole` leaves out the pieces of words split at a line end ("diver-" / "gence")."""
+
+    whole: frozenset = frozenset()
+
+
+def vocabulary(lines: list[Line]) -> Vocabulary:
+    vocab = Vocabulary(w.lower() for ln in lines for w in _WORD.findall(ln.text))
+    whole: set[str] = set()
+    split = False  # the previous line ends with a hyphen
+    for ln in lines:
+        text = ln.text.rstrip()
+        found = list(_WORD.finditer(text))
+        if split and found and found[0].start() == 0 and text[:1].islower():
+            found = found[1:]  # the second half of a split word
+        split = bool(re.search(r"[A-Za-z]-$", text))
+        if split and found and found[-1].end() == len(text) - 1:
+            found = found[:-1]  # the first half
+        whole.update(m.group(0).lower() for m in found)
+    vocab.whole = frozenset(whole)
+    return vocab
+
+
+_HYPHEN_PREFIXES = {"self", "cross", "quasi", "pseudo"}
+# a first half that can be a word on its own ("pathology"), not a syllable cut in the middle ("diver", "funda")
+_WORD_END = re.compile(r"(?:y|ogy|ing|ion|ity|ism|ics|al|ic|ive|ous|ment|ness|ance|ence|ure|ine)$")
 
 
 def _join(a: str, b: str, vocab: set[str] = frozenset()) -> str:
@@ -580,6 +613,12 @@ def _join(a: str, b: str, vocab: set[str] = frozenset()) -> str:
         hyphenated = f"{head}-{tail}".lower()
         if hyphenated in vocab and merged not in vocab:
             return a + b  # a real compound: "language-" + "aligned"
+        # a compound used once: both halves are words of the paper ("pathology-" + "related"),
+        # or the first is a prefix that keeps its hyphen ("self-" + "evidencing")
+        if merged not in vocab and (head.lower() in _HYPHEN_PREFIXES or (
+                len(head) >= 6 and len(tail) >= 5 and tail.lower() in getattr(vocab, "whole", vocab)
+                and _WORD_END.search(head.lower()))):
+            return a + b
         return a[:-1] + b  # de-hyphenate "percep-" + "tion"
     return a + " " + b
 

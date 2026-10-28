@@ -35,6 +35,16 @@ def clean(text):
     ("Data at https://osf.io/abcd/ and doi:10.1234/xyz.5.", "Data at and."),
     ("see https://doi.org/10.1167/jov.20.8.1 for", "see for"),
     ("Contact jane.doe@uni-tuebingen.de now", "Contact now"),
+    # what is left of a citation that was only numbers
+    ("relatives using rivalry (but see [94]). However", "relatives using rivalry. However"),
+    ("external cues (though see [94]), and", "external cues, and"),
+    ("frameworks (for example, [57]) but also", "frameworks but also"),
+    ("inhibition (for example, [27, 28]). Certain", "inhibition. Certain"),
+    ("other factors (see [44] for an exhaustive review). It", "other factors. It"),
+    ("a stimulus; see [7] for a review). While", "a stimulus). While"),
+    ("conditions (see Glossary), which often", "conditions, which often"),
+    ("(for example, monetary gain) stays", "(for example, monetary gain) stays"),
+    ("(see Methods for details) stays", "(see Methods for details) stays"),
     # figure references
     ("was larger (Fig. 2A, B) than", "was larger than"),
     ("was larger (see Supplementary Figure S3) than", "was larger than"),

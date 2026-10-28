@@ -78,6 +78,26 @@ def test_sentence_continues_across_columns(two_column):
             assert p.text.startswith("mk"), p.text[:80]
 
 
+def test_compound_hyphen_kept_when_used_once():
+    from paper2audio.layout import Vocabulary, _join
+    vocab = Vocabulary({"pathology", "related", "diver"})
+    vocab.whole = frozenset({"related", "evidence"})
+    assert _join("on pathology-", "related findings", vocab) == "on pathology-related findings"   # both halves are words
+    assert _join("This self-", "evidencing implies", vocab) == "This self-evidencing implies"     # a prefix that keeps its hyphen
+    assert _join("a cross-", "platform tool", vocab) == "a cross-platform tool"
+    assert _join("the diver-", "gence of", vocab) == "the divergence of"                          # a syllable cut: "gence" is no word
+    assert _join("is ex-", "plained by", vocab) == "is explained by"
+    assert _join("a funda-", "mental idea", vocab) == "a fundamental idea"
+
+
+def test_vocabulary_whole_words_skip_split_pieces():
+    from paper2audio.layout import vocabulary
+    from paper2audio.models import Line
+    lines = [Line("the diver-", 0, 0, 10, 8, 8, False, 0), Line("gence of related work", 0, 9, 10, 17, 8, False, 0)]
+    v = vocabulary(lines)
+    assert {"diver", "gence"} <= v and "related" in v.whole and not {"diver", "gence"} & v.whole
+
+
 def test_soft_hyphen_join():
     from paper2audio.layout import _join
     assert _join("DMN–LN hypocon­", "nectivity and") == "DMN–LN hyponnectivity and".replace("hyponn", "hypoconn")
