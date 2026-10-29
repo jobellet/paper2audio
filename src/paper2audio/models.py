@@ -29,6 +29,7 @@ class Span:
     superscript: bool = False
     monospace: bool = False
     color: int = 0  # sRGB integer of the text colour (0 = black)
+    font: str = ""
 
 
 @dataclass

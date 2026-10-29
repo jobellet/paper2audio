@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass, field
 
 from . import layout, profiles
-from .cleaning import apply_rules, normalize_unicode
+from .cleaning import _MATH_WORD_LIST, apply_rules, normalize_unicode
 from .extract import extract
 from .models import Document, Kind, Paragraph, Section
 from .profiles.base import JournalProfile
@@ -73,6 +73,19 @@ def _looks_like_prose(text: str) -> bool:
     return capitalised / len(words) < 0.35 and sentences >= 1
 
 
+_MATH_SYMBOL = re.compile(r"[=∼≈∈≥≤<>⋅×∥‖⊤∗^_∑∫+−±]|^[^\W\d_]$|^[^\W\d_]\w?\d$|^[^\W\d_]\w?\(\w*\)?[.,;]?$|\d")
+
+
+def _looks_like_math(text: str) -> bool:
+    """A short paragraph that is a formula with a word or two ("A2 ∼ A1 (orthogonal similarity).")."""
+    tokens = [t for t in text.split() if t not in "()[]{}.,;:"]
+    if not tokens or len(tokens) > 30:
+        return False
+    real = [w for w in re.findall(r"[A-Za-z]{4,}", text) if w.lower() not in _MATH_WORD_LIST]
+    mathy = sum(1 for t in tokens if _MATH_SYMBOL.search(t.strip(".,;:()")) or _MATH_SYMBOL.search(t))
+    return len(real) <= 3 and mathy >= 2 and mathy >= 0.5 * len(tokens)
+
+
 def _norm_title(text: str) -> str:
     return re.sub(r"\W+", " ", text).strip().lower()
 
@@ -135,6 +148,8 @@ def sectionize(paras: list[Paragraph], profile: JournalProfile,
         if skipping or p.kind not in readable:
             continue
         if any(j.search(p.text) for j in junk) or _looks_like_affiliations(p.text) or _looks_like_keywords(p.text):
+            continue
+        if p.kind == Kind.BODY and _looks_like_math(p.text):
             continue
         if in_front:
             if not _looks_like_prose(p.text):

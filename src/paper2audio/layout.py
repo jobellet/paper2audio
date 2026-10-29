@@ -123,6 +123,9 @@ def mark_fragment_flows(ordered: list[Line]) -> None:
         considered = [ln for ln in lines if ln.kind not in (Kind.HEADING, Kind.TITLE)]
         if not body or len(considered) < 2:
             continue
+        equations = sum(1 for ln in lines if ln.kind == Kind.OTHER and re.search(r"[=∇∂‖⊤∑∫√±≤≥∈]", ln.text))
+        if equations >= 2 and any(len(re.findall(r"\b[a-z]{2,}\b", ln.text)) >= 7 for ln in body):
+            continue  # a sentence among display equations ("where η is the learning rate. The gradient of L decomposes as")
         short = [ln for ln in considered if len(ln.text.split()) <= 6 and not _TERMINAL.search(ln.text)]
         if len(short) >= 0.8 * len(considered) and sum(len(ln.text) for ln in considered) / len(considered) < 35:
             for ln in body:
@@ -257,8 +260,22 @@ def mark_figure_text(doc: Document, body: float) -> None:
             inside = [ln for ln in page.lines if ln.kind in (Kind.BODY, Kind.HEADING, Kind.FOOTNOTE)
                       and fx0 - pad <= ln.cx <= fx1 + pad and fy0 - pad <= (ln.y0 + ln.y1) / 2 <= fy1 + pad
                       and ln.x0 >= fx0 - 3 * pad and ln.x1 <= fx1 + 3 * pad]
+            # a caption whose box reaches into the area (it often does: the image box
+            # includes it) is neither prose to keep nor figure text to drop
+            caption: set[int] = set()
+            below_caption: Line | None = None
+            for ln in sorted(inside, key=lambda l: (l.y0, l.x0)):
+                if _CAPTION.match(ln.text):
+                    below_caption = ln
+                    caption.add(id(ln))
+                elif (below_caption is not None and -0.3 * below_caption.height <= ln.y0 - below_caption.y1 < below_caption.height
+                        and abs(ln.size - below_caption.size) < 0.3 and ln.x0 < below_caption.x0 + 3
+                        and len(ln.text.split()) >= 6):
+                    below_caption = ln
+                    caption.add(id(ln))
             prose = [ln for ln in inside if len(ln.text.split()) >= 9]
-            if len(prose) >= 3:
+            # lines of prose that are not the figure's own caption: a caption alone does not make a text area
+            if len(prose) >= 3 and any(id(ln) not in caption for ln in prose):
                 # the area overlaps running text (or is a shaded text box): leave the text. In a box set in
                 # footnote-size type, the panel labels of its figure ("(I)", "Agent") are short, unpunctuated and
                 # set larger than the box text but smaller than the body: drop them.
@@ -270,7 +287,7 @@ def mark_figure_text(doc: Document, body: float) -> None:
                         ln.kind = Kind.OTHER
                 continue
             for ln in inside:
-                if not _CAPTION.match(ln.text):
+                if id(ln) not in caption:
                     ln.kind = Kind.OTHER
             for ln in page.lines:
                 if (ln.kind == Kind.BODY and ln.size < body - 0.5 and not ln.bold
@@ -337,6 +354,34 @@ def mark_math(doc: Document) -> None:
             ln.kind = Kind.OTHER
 
 
+def mark_math_rows(doc: Document) -> None:
+    """Pieces of a display equation that look like text ("ri(t) =", "· ri(t − ∆t) + ∆").
+
+    An equation is set in several rows (numerators, indices, exponents): the
+    fragments of its baseline row that are not mathy enough for `mark_math` sit
+    right beside lines already known to be math. Prose is wider and carries
+    real words.
+    """
+    for page in doc.pages:
+        side = [o for o in page.lines if o.kind in (Kind.OTHER, Kind.FOOTNOTE)]
+        if not side:
+            continue
+        body_lines = [o for o in page.lines if o.kind == Kind.BODY]
+        text_width = max((o.width for o in body_lines), default=0)
+        for ln in body_lines:
+            if ln.width > 0.45 * text_width or len(ln.text) > 40:
+                continue
+            if any(w.lower() not in _MATH_WORDS for w in re.findall(r"[A-Za-z]{4,}", ln.text)):
+                continue
+            # stacked over an equation row (overlapping it) only counts for a fragment that is clearly math
+            symbolic = re.search(r"[∂∇∑∫√±≤≥∈≈→−×·⟨⟩=+]", ln.text) is not None or re.fullmatch(r"[\s:;,.(){}\[\]]+", ln.text)
+            beside = [o for o in side if abs((o.y0 + o.y1) / 2 - (ln.y0 + ln.y1) / 2) < ln.height * 0.8
+                      and (max(o.x0 - ln.x1, ln.x0 - o.x1) <= ln.size * 1.5 if symbolic
+                           else -2 <= max(o.x0 - ln.x1, ln.x0 - o.x1) <= ln.size * 1.5)]
+            if beside:
+                ln.kind = Kind.OTHER
+
+
 def mark_patterns(doc: Document, profile: "JournalProfile") -> None:
     pats = profile.compiled_junk_lines()
     if not pats:
@@ -373,6 +418,13 @@ def _mark_plain_title(page: Page) -> None:
         ln.kind = Kind.TITLE
 
 
+def _section_numbered(ln: Line, page: Page) -> bool:
+    """A section number or appendix letter stands left of the line, on its baseline ("2  MODEL")."""
+    return any(o is not ln and re.fullmatch(r"\d{1,2}(\.\d+)*|[A-Z]", o.text.strip())
+               and abs(o.y0 - ln.y0) < ln.height * 0.8 and 0 <= ln.x0 - o.x1 < ln.size * 4
+               for o in page.lines)
+
+
 def mark_headings(doc: Document, body: float) -> None:
     title_size = 0.0
     if doc.pages:
@@ -385,9 +437,15 @@ def mark_headings(doc: Document, body: float) -> None:
         if ln.kind in (Kind.BODY, Kind.FOOTNOTE) and _SECTION_NAME.match(ln.text) and (ln.bold or ln.text.isupper()):
             ln.kind = Kind.HEADING  # "INTRODUCTION" in small caps, smaller than the body text
             continue
+        words = len(ln.text.split())
+        if (ln.kind in (Kind.BODY, Kind.FOOTNOTE) and ln.text.isupper() and words <= 12
+                and len(re.findall(r"[A-Z]", ln.text)) >= 4 and body * 0.75 <= ln.size <= body + 0.1
+                and not _TERMINAL.search(ln.text) and not re.search(r"\d|[=()]", ln.text)
+                and not _CAPTION.match(ln.text) and _section_numbered(ln, doc.pages[ln.page])):
+            ln.kind = Kind.HEADING  # "2  MODEL", "3.1  TASKS": numbered small-caps headings (ICLR)
+            continue
         if ln.kind != Kind.BODY:
             continue
-        words = len(ln.text.split())
         if not _HEADING_WORD.search(ln.text) or _CAPTION.match(ln.text):
             continue  # panel letters "a", math "f x f y", numbers; "Figure 1. Title" is a caption
         if ln.page == 0 and title_size > body * 1.3 and ln.size >= title_size - 0.5:
@@ -587,7 +645,7 @@ def vocabulary(lines: list[Line]) -> Vocabulary:
     whole: set[str] = set()
     split = False  # the previous line ends with a hyphen
     for ln in lines:
-        text = ln.text.rstrip()
+        text = re.sub(r"[\u00ad\u2010\u2011]$", "-", ln.text.rstrip())  # soft hyphens count
         found = list(_WORD.finditer(text))
         if split and found and found[0].start() == 0 and text[:1].islower():
             found = found[1:]  # the second half of a split word
@@ -600,24 +658,41 @@ def vocabulary(lines: list[Line]) -> Vocabulary:
 
 
 _HYPHEN_PREFIXES = {"self", "cross", "quasi", "pseudo"}
+# prefixes that are written together with the word ("interviews", "translate"): never a compound's first half
+_GLUED_PREFIXES = {"inter", "intra", "trans", "extra", "infra", "ultra", "hyper", "hypo", "micro", "macro", "multi", "over",
+                   "under", "post", "anti", "counter", "semi", "para", "proto", "retro", "meta", "mini", "mono", "poly"}
 # a first half that can be a word on its own ("pathology"), not a syllable cut in the middle ("diver", "funda")
-_WORD_END = re.compile(r"(?:y|ogy|ing|ion|ity|ism|ics|al|ic|ive|ous|ment|ness|ance|ence|ure|ine)$")
+_WORD_END = re.compile(r"(?:y|ogy|ing|ion|ity|ism|ics|al|ic|ive|ous|ment|ness|ance|ence|ure|ine|ite)$")
 
 
 def _join(a: str, b: str, vocab: set[str] = frozenset()) -> str:
     a = re.sub(r"[\u00ad\u2010\u2011]$", "-", a)  # soft / Unicode hyphens at line end
+    if re.search(r"[A-Za-z]-(?:to|of|in|on|by|for|per|and|the|at|as|or|vs|from|with)-$", a, re.I) and b[:1].islower():
+        return a + b  # the line broke at a hyphen of a compound: "signal-to-" + "noise"
     m = re.search(r"([A-Za-z]+)-$", a)
+    if m and b[:1].isupper():
+        head, tail = m.group(1), re.match(r"[A-Za-z]*", b).group(0)
+        if head.isupper() and tail.isupper() and len(head) >= 2 and len(tail) >= 3 and a.upper() == a:
+            # a title set in capitals: "DE-" + "PEND ON" (a compound is rare there)
+            return (a + b if f"{head}-{tail}".lower() in vocab and (head + tail).lower() not in vocab
+                    else a[:-1] + b)
     if m and b[:1].islower():
         head, tail = m.group(1), re.match(r"[A-Za-z]*", b).group(0)
+        if len(head) >= 5 and "-" in re.match(r"[A-Za-z]+(?:-[A-Za-z]+)*", b).group(0):
+            return a + b  # "Coarse-" + "to-fine": the break fell on a hyphen of a compound
         merged = (head + tail).lower()
         hyphenated = f"{head}-{tail}".lower()
         if hyphenated in vocab and merged not in vocab:
             return a + b  # a real compound: "language-" + "aligned"
         # a compound used once: both halves are words of the paper ("pathology-" + "related"),
         # or the first is a prefix that keeps its hyphen ("self-" + "evidencing")
+        whole = getattr(vocab, "whole", vocab)
         if merged not in vocab and (head.lower() in _HYPHEN_PREFIXES or (
-                len(head) >= 6 and len(tail) >= 5 and tail.lower() in getattr(vocab, "whole", vocab)
-                and _WORD_END.search(head.lower()))):
+                len(head) >= 6 and len(tail) >= 5 and tail.lower() in whole
+                and _WORD_END.search(head.lower())) or (
+                len(head) >= 4 and len(tail) >= 4 and head.lower() in whole and tail.lower() in whole
+                and head.lower() not in _GLUED_PREFIXES and not re.search(r"fold$|^(?:batch|force|more|less|over|fore|ward|wards|wise|like|some|where|what|ever)$",
+                                  tail.lower()))):
             return a + b
         return a[:-1] + b  # de-hyphenate "percep-" + "tion"
     return a + " " + b
@@ -649,6 +724,9 @@ def is_caption_start(ln: Line, prev: Line | None, body: float) -> bool:
 _DANGLING = re.compile(r"(?:[-,(]|\b(?:the|a|an|of|and|or|in|on|at|to|for|with|by|from|that|which|as|is|are|was|were|than|between|we|our|its|their))$", re.I)
 
 
+_OPEN_CITATION = re.compile(r"\([^()]*[;,]$")  # "(Tallec and Ollivier, 2018;" at the foot of a page
+
+
 def _footnote_into_body(prev: Line, ln: Line, body: float) -> bool:
     """Small text (affiliations, footnotes) followed by body text: Nature's 8 pt
     affiliations, then on the next page the 9.5 pt introduction, which starts
@@ -661,6 +739,7 @@ def _cut_sentence(prev: Line, ln: Line, body: float) -> bool:
     if _TERMINAL.search(prev.text) or _footnote_into_body(prev, ln, body):
         return False
     return (_continuation_start(ln.text) or _DANGLING.search(prev.text) is not None
+            or _OPEN_CITATION.search(prev.text) is not None
             or re.match(r"[A-Z]{2,}s?\b", ln.text) is not None)  # "...the diagnosed | ID group"
 
 
@@ -760,9 +839,10 @@ def merge_broken(paras: list[Paragraph], vocab: set[str] = frozenset(), body: fl
         prev = next((q for q in reversed(out) if q.kind == Kind.BODY), None) if p.kind == Kind.BODY else None
         # only look back past non-main-flow paragraphs (captions, footnotes, math);
         # never from footnote-size text into body text (see _footnote_into_body)
-        if prev is not None and all(q.kind not in _MAIN_FLOW for q in out[out.index(prev) + 1:]) \
-                and _TERMINAL.search(prev.text) is None and _continuation_start(p.text) \
-                and not (body and prev.size and prev.size < body - 0.7 and abs(p.size - body) <= 0.3):
+        if (prev is not None and all(q.kind not in _MAIN_FLOW for q in out[out.index(prev) + 1:])
+                and _TERMINAL.search(prev.text) is None
+                and (_continuation_start(p.text) or _OPEN_CITATION.search(prev.text))
+                and not (body and prev.size and prev.size < body - 0.7 and abs(p.size - body) <= 0.3)):
             prev.text = _join(prev.text, p.text, vocab)
             continue
         out.append(p)
@@ -800,6 +880,7 @@ def analyse(doc: Document, profile: "JournalProfile", keep_junk: bool = False) -
     mark_small_text(doc, body, profile)
     mark_figure_text(doc, body)
     mark_math(doc)
+    mark_math_rows(doc)
     mark_headings(doc, body)
     profile.classify_lines(doc, body)
 

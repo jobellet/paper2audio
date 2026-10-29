@@ -29,6 +29,8 @@ CLUES: list[tuple[str, re.Pattern]] = [
                             rf"|\b\d+ \({_YEAR}\) \d+")),
     ("accepted", re.compile(rf"\baccepted(?: in final form)?:?\s+(?:\d{{1,2}}\s+)?{_MONTHS}\s+(?:\d{{1,2}},?\s+)?{_YEAR}", re.I)),
     ("copyright", re.compile(rf"(?:©|\(c\)|copyright)\s*(?:©\s*)?{_YEAR}", re.I)),
+    # preprint running head: "CMC lab preprint | Behrad et al. | December 1, 2025"
+    ("dated", re.compile(rf"\|\s*{_MONTHS}\s+\d{{1,2}},\s+{_YEAR}\b")),
 ]
 
 

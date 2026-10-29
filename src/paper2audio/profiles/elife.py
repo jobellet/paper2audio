@@ -1,4 +1,7 @@
 from . import register
+import re
+
+from ..models import Paragraph, Section
 from .generic import Generic
 
 
@@ -50,3 +53,13 @@ class ELife(Generic):
         r"recommendations for the authors",
         r"elife assessment",
     )
+
+    def postprocess(self, sections: list[Section]) -> list[Section]:
+        # the abstract opens with a bold run-in "Abstract", on the line of its first sentence
+        if sections and not sections[0].title and sections[0].paragraphs:
+            first = sections[0].paragraphs[0]
+            if re.match(r"Abstract\s+\S", first.text):
+                rest = re.sub(r"^Abstract\s+", "", first.text)
+                sections[0] = Section(title="Abstract", paragraphs=[
+                    Paragraph(text=rest, kind=first.kind, page=first.page), *sections[0].paragraphs[1:]])
+        return sections

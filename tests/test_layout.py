@@ -398,3 +398,50 @@ def test_columns_read_apart_when_a_wide_caption_crosses_the_gutter():
     order = [ln.text.split()[0] for ln in reading_order(Page(2, 612, 792, lines=[*caption, *left, *right]), 9.5)]
     body = [w for w in order if w.startswith(("left", "right"))]
     assert body == [f"left{i:02d}" for i in range(10)] + [f"right{i:02d}" for i in range(13)]
+
+
+def test_join_keeps_compounds_and_titles():
+    from paper2audio.layout import Vocabulary, _join
+    vocab = Vocabulary(["hankel", "embedded", "zero", "detection", "interviews"])
+    vocab.whole = frozenset(["hankel", "embedded", "zero", "detection", "inter", "views"])
+    assert _join("the Hankel-", "embedded matrices", vocab) == "the Hankel-embedded matrices"   # two words of the paper
+    assert _join("a zero-", "detection rate", vocab) == "a zero-detection rate"
+    assert _join("we saw inter-", "views of", vocab) == "we saw interviews of"                   # a prefix written together
+    assert _join("the signal-to-", "noise ratio", vocab) == "the signal-to-noise ratio"          # the break fell on a hyphen
+    assert _join("a coarse-", "to-fine scheme", vocab) == "a coarse-to-fine scheme"
+    assert _join("ON LONG TIMESCALES DE-", "PEND ON TRAINING", vocab) == "ON LONG TIMESCALES DEPEND ON TRAINING"
+
+
+def test_join_open_citation_across_a_page():
+    from paper2audio.layout import _OPEN_CITATION
+    assert _OPEN_CITATION.search("machine learning literature (Tallec and Ollivier, 2018;")
+    assert not _OPEN_CITATION.search("machine learning literature (Tallec and Ollivier, 2018).")
+
+
+def test_ligature_at_line_end_is_joined(tmp_path):
+    from paper2audio.extract import _LIGATURES
+    from paper2audio.layout import _join
+    assert "eﬃ-".translate(_LIGATURES) == "effi-"
+    assert _join("computational effi-", "ciency of") == "computational efficiency of"
+
+
+def test_text_after_a_leading_subscript_is_not_a_citation_mark():
+    from paper2audio.extract import _unflag_text_after_subscript
+    from paper2audio.models import Span
+    spans = [Span("ij", 0, 5, 6.3), Span("and", 6, 20, 9.0, superscript=True),
+             Span("a winner-take-all rule", 22, 120, 9.0, superscript=True)]
+    _unflag_text_after_subscript(spans)
+    assert [sp.text for sp in spans] == ["and", "a winner-take-all rule"]   # the equation's subscript is gone
+    assert not any(sp.superscript for sp in spans)
+    citation = [Span("as shown", 0, 40, 9.0), Span("12", 41, 46, 6.0, superscript=True)]
+    _unflag_text_after_subscript(citation)
+    assert citation[1].superscript                                          # a real superscript stays
+
+
+def test_formula_paragraphs_are_recognised():
+    from paper2audio.pipeline import _looks_like_math
+    assert _looks_like_math("A2 ∼ A1 (orthogonal similarity).")
+    assert _looks_like_math("A1 = CA2C⊤.")
+    assert _looks_like_math("2kr(kr + 1) AICc = AICr + Nobs − kr − 1.")
+    assert not _looks_like_math("Let x and y be two dynamical systems:")
+    assert not _looks_like_math("This provides a principled metric to assess dynamical equivalence beyond geometric (dis)similarities.")
